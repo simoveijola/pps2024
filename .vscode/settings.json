@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "math.h": "c",
+        "array": "c",
+        "string": "c",
+        "string_view": "c",
+        "iterator": "c",
+        "vector": "c"
+    }
+}
