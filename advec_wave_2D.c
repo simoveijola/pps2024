@@ -35,6 +35,7 @@ float ugrad_upw(int i, int j, int ny, float data[][ny]){
 }
 
 // not used at the moment as we use MPI_Cart
+/*
 int find_proc(int ipx, int ipy, int npx)
 {
     return ipy*npx + ipx;
@@ -47,6 +48,7 @@ int* find_proc_coords(int rank, int npx, int npy)
     coords[1] = rank / npx;
     return coords;
 }
+*/
 
 void initcond(int nx, int ny, float x[], float y[], float data[][ny+2*halo_width])
 {
@@ -194,8 +196,19 @@ int main(int argc, char** argv)
     int xrange_1[2] = {ixstart + ((int)up)*halo_width, ixstop - ((int)!up)*halo_width};
     int yrange_1[2] = {iystart + ((int)left)*halo_width, iystop - ((int)!left)*halo_width};
     // Second ranges that we can calculate after getting outside data
-    int xrange_2[2] = up == 1 ? {ixstart, ixstart + halo_width} : {ixstop-halo_width, ixstop};
-    int yrange_2[2] = left == 1 ? {iystart, iystart + halo_width} : {iystop-halo_width, iystop};
+    int xrange_2[2];
+    if (up == 1) {
+        xrange_2[0] = ixstart; xrange_2[1] = ixstart + halo_width;
+    } else {
+        xrange_2[0] = ixstop-halo_width; xrange_2[1] = ixstop;
+    }
+
+    int yrange_2[2];
+    if(left == 1) {
+        yrange_2[0] = iystart; yrange_2[1] = iystart + halo_width;
+    } else {
+        yrange_2[0] = iystop-halo_width; yrange_2[1] = iystop;
+    }
 
     FILE* fptr_approx = get_file_ptr("field_chunk_approximated_", rank);
 
