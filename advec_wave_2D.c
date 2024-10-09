@@ -5,10 +5,10 @@
 #include <math.h>
 
 static const int halo_width=2;    // fill in halo_width
-int rank;
+int rank, nprocs;
 
 const float pi=3.14159;
-const float u_x=0.5 , u_y=0.5 , c_amp=1  // choose velocity components and amplitude of initial condition
+const float u_x=0.5 , u_y=0.5 , c_amp=1;  // choose velocity components and amplitude of initial condition
 const float cdt=.3;               // safety factor for timestep (experiment!)
 static float dx, dy;              // grid spacings
 
@@ -84,15 +84,16 @@ get_file_ptr(const char* prefix, const int pid)
     return fopen(name,"w");
 }
 int main(int argc, char** argv)
-{
+{   
+
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     // Check compatibility of argv parameters!
 
-    nprocx = atoi(argv[1]); 
-    nprocy = atoi(argv[2]);
+    int nprocx = atoi(argv[1]); 
+    int nprocy = atoi(argv[2]);
 
     int domain_nx = atoi(argv[3]),                 // number of gridpoints in x direction
         subdomain_nx = domain_nx/nprocx,                            // subdomain x-size w/o halos
@@ -101,6 +102,26 @@ int main(int argc, char** argv)
     int domain_ny = atoi(argv[4]),                 // number of gridpoints in y direction
         subdomain_ny = domain_ny/nprocy,                           // subdomain y-size w/o halos
         subdomain_my = subdomain_ny + 2*halo_width;                        //                  with halos
+
+    // Find neighboring processes!
+    int *proc_coords;
+    MPI_Comm newComm;
+
+    const int dim = 2;
+    const int dims[2] = {nprocx, nprocy};
+    const int periodic[2] = {1,1};
+    // create cartesian coordinates, new communicators, and find the new rank
+    // and coordinates for this process
+    MPI_Cart_create(MPI_COMM_WORLD, dim, dims, periodic, 1, &newComm);
+    MPI_Comm_rank(newComm, &rank);
+    MPI_Cart_coords(newComm, rank, dim, proc_coords);
+    ipx=proc_coords[0]; ipy=proc_coords[1];
+    
+    // int nL_coords[2], nR_coords[2], nU_coords[2], nD_coords[2];
+    int nL_rank, nR_rank, nU_rank, nD_rank;
+    // Find the neighbour ranks
+    MPI_Cart_shift(newComm, 0, 1, &nU_rank, &nD_rank);
+    MPI_Cart_shift(newComm, 1, 1, &nL_rank, &nR_rank);
 
 
     float data[subdomain_mx][subdomain_my], d_data[subdomain_mx][subdomain_my];
@@ -119,31 +140,6 @@ int main(int argc, char** argv)
 
     // Initialisation of data.
     initcond(subdomain_nx, subdomain_ny, x, y, data);
-
-    // Find neighboring processes!
-    int *proc_coords;
-    MPI_Comm newComm;
-
-    const int dim = 2;
-    const int dim[2] = {nprocx, nprocy};
-    const int periodic = {1,1};
-    // create cartesian coordinates, new communicators, and find the new rank
-    // and coordinates for this process
-    MPI_Cart_create(MPI_COMM_WORLD, dim, dims, periodic, 1, &newComm);
-    MPI_Comm_rank(newComm, &rank);
-    MPI_Cart_coords(newComm, rank, dim, proc_coords);
-    ipx=proc_coords[0]; ipy=proc_coords[1];
-    
-    int nL_coords[2], nR_coords[2], nU_coords[2], nD_coords[2];
-    int nL_rank, nR_rank, nU_rank, nD_rank;
-    // Find the neighbour coordinates
-    MPI_Cart_shift(newComm, 0, 1, &nU_coords, &nD_coords);
-    MPI_Cart_shift(newComm, 1, 1, &nL_coords, &nR_coords);
-    // and the ranks
-    MPI_Cart_rank(newComm, nL_coords, &nL_rank);
-    MPI_Cart_rank(newComm, nR_coords, &nR_rank);
-    MPI_Cart_rank(newComm, nU_coords, &nU_rank);
-    MPI_Cart_rank(newComm, nD_coords, &nD_rank);
 
     // Think about convenient data types to access non-contiguous portions of array data!
     // MPI_Type_vectors seem useful
@@ -192,8 +188,8 @@ int main(int argc, char** argv)
 
     // whether we retrieve data from left (true) or right (false), and up or down
     // We use put here, so if left == true, we place data to the right and so on
-    bool left = u_x > 0 ? true : false;
-    bool up = u_y > 0 ? true : false;
+    bool left = u_x > 0 ? 1 : 0;
+    bool up = u_y > 0 ? 1 : 0;
     // First ranges that we can calculate without depending on the outside data
     int xrange_1[2] = {ixstart + ((int)up)*halo_width, ixstop - ((int)!up)*halo_width};
     int yrange_1[2] = {iystart + ((int)left)*halo_width, iystop - ((int)!left)*halo_width};
@@ -240,8 +236,8 @@ int main(int argc, char** argv)
         MPI_Win_fence(0, win);
         // Data arrived -> compute stencils in all points that *are* affected by halo points.
         // first copy the data from the buffer attached to the window
-        int offsetx = up ? 0 : subdomain_nx + halo_width;
-        int offsety = left ? 0 : subdomain_ny + halo_width;
+        int offsetx = up == true ? 0 : subdomain_nx + halo_width;
+        int offsety = left == true ? 0 : subdomain_ny + halo_width;
 
         for(int i = 0; i < 2; ++i) {
             for(int j = 0; j < subdomain_ny; ++j) {
@@ -262,14 +258,14 @@ int main(int argc, char** argv)
             {
                 data[ix][iy] += dt*d_data[ix][iy];
 
-                fprintf(fptr_approx,"%f ",data[ix][iy])
+                fprintf(fptr_approx,"%f ",data[ix][iy]);
             }
         }
         t = t+dt;
         fprintf(fptr_approx,"\n");
         // Output solution for checking/visualisation with choosable cadence!
     }
-    fclose(fptr_analytical);
+    fclose(fptr_approx);
 
     // Finalize timing!
 
