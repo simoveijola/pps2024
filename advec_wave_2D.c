@@ -115,7 +115,7 @@ int main(int argc, char** argv)
     MPI_Cart_create(MPI_COMM_WORLD, dim, dims, periodic, 1, &newComm);
     MPI_Comm_rank(newComm, &rank);
     MPI_Cart_coords(newComm, rank, dim, proc_coords);
-    ipx=proc_coords[0]; ipy=proc_coords[1];
+    int ipx=proc_coords[0], ipy=proc_coords[1];
     
     // int nL_coords[2], nR_coords[2], nU_coords[2], nD_coords[2];
     int nL_rank, nR_rank, nU_rank, nD_rank;
@@ -188,14 +188,14 @@ int main(int argc, char** argv)
 
     // whether we retrieve data from left (true) or right (false), and up or down
     // We use put here, so if left == true, we place data to the right and so on
-    bool left = u_x > 0 ? 1 : 0;
-    bool up = u_y > 0 ? 1 : 0;
+    int left = u_x > 0 ? 1 : 0;
+    int up = u_y > 0 ? 1 : 0;
     // First ranges that we can calculate without depending on the outside data
     int xrange_1[2] = {ixstart + ((int)up)*halo_width, ixstop - ((int)!up)*halo_width};
     int yrange_1[2] = {iystart + ((int)left)*halo_width, iystop - ((int)!left)*halo_width};
     // Second ranges that we can calculate after getting outside data
-    int xrange_2[2] = up ? {ixstart, ixstart + halo_width} : {ixstop-halo_width, ixstop};
-    int yrange_2[2] = left ? {iystart, iystart + halo_width} : {iystop-halo_width, iystop};
+    int xrange_2[2] = up == 1 ? {ixstart, ixstart + halo_width} : {ixstop-halo_width, ixstop};
+    int yrange_2[2] = left == 1 ? {iystart, iystart + halo_width} : {iystop-halo_width, iystop};
 
     FILE* fptr_approx = get_file_ptr("field_chunk_approximated_", rank);
 
@@ -236,8 +236,8 @@ int main(int argc, char** argv)
         MPI_Win_fence(0, win);
         // Data arrived -> compute stencils in all points that *are* affected by halo points.
         // first copy the data from the buffer attached to the window
-        int offsetx = up == true ? 0 : subdomain_nx + halo_width;
-        int offsety = left == true ? 0 : subdomain_ny + halo_width;
+        int offsetx = up == 1 ? 0 : subdomain_nx + halo_width;
+        int offsety = left == 1 ? 0 : subdomain_ny + halo_width;
 
         for(int i = 0; i < 2; ++i) {
             for(int j = 0; j < subdomain_ny; ++j) {
@@ -290,7 +290,7 @@ int main(int argc, char** argv)
 	    } else {
           for (int ix=ixstart; ix < ixstop; ++ix)  {
             for (int iy=iystart; iy < iystop; ++iy) {
-                fprintf(fptr_analytical,"%f ",data_an[iter][ix][iy])
+                fprintf(fptr_analytical,"%f ",data_an[iter][ix][iy]);
             }
           }
 	    }
