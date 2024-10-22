@@ -12,9 +12,9 @@ mpicc -o ADV advec_wave_2D.c -lm
 
 nprocx=2
 nprocy=2
-domain_nx=$((nprocx*5))
-domain_ny=$((nprocy*5))
-iterations=2
-nnodes=$((nprocx*nprocy))
 
-time srun ADV $nprocx $nprocy $domain_nx $domain_ny $iterations
+# iterate with different sizes and iteration counts
+for iter in 50
+do
+	time srun ADV -- $nprocx $nprocy $((3*nprocx)) $((3*nprocy)) $iter >> times_iter_${iter}_size_3.out
+done
