@@ -1,0 +1,126 @@
+dt= 0.012566 
+Iterations: 20
+Dimensions: [10, 10]
+Subdimensions: [5, 5]
+Processes: 4 ([2, 2])
+Total time: 0.001404
+
+dt= 0.001257 
+Iterations: 20
+Dimensions: [100, 100]
+Subdimensions: [50, 50]
+Processes: 4 ([2, 2])
+Total time: 0.002458
+
+dt= 0.000314 
+Iterations: 20
+Dimensions: [400, 400]
+Subdimensions: [200, 200]
+Processes: 4 ([2, 2])
+Total time: 0.024088
+
+dt= 0.012566 
+Iterations: 60
+Dimensions: [10, 10]
+Subdimensions: [5, 5]
+Processes: 4 ([2, 2])
+Total time: 0.001107
+
+dt= 0.001257 
+Iterations: 60
+Dimensions: [100, 100]
+Subdimensions: [50, 50]
+Processes: 4 ([2, 2])
+Total time: 0.005436
+
+dt= 0.000314 
+Iterations: 60
+Dimensions: [400, 400]
+Subdimensions: [200, 200]
+Processes: 4 ([2, 2])
+Total time: 0.069455
+
+dt= 0.012566 
+Iterations: 100
+Dimensions: [10, 10]
+Subdimensions: [5, 5]
+Processes: 4 ([2, 2])
+Total time: 0.001260
+
+dt= 0.001257 
+Iterations: 100
+Dimensions: [100, 100]
+Subdimensions: [50, 50]
+Processes: 4 ([2, 2])
+Total time: 0.008624
+
+dt= 0.000314 
+Iterations: 100
+Dimensions: [400, 400]
+Subdimensions: [200, 200]
+Processes: 4 ([2, 2])
+Total time: 0.115903
+
+dt= 0.012566 
+Iterations: 20
+Dimensions: [10, 10]
+Subdimensions: [5, 5]
+Processes: 4 ([2, 2])
+Total time: 0.001537
+
+dt= 0.001257 
+Iterations: 20
+Dimensions: [100, 100]
+Subdimensions: [50, 50]
+Processes: 4 ([2, 2])
+Total time: 0.002717
+
+dt= 0.000314 
+Iterations: 20
+Dimensions: [400, 400]
+Subdimensions: [200, 200]
+Processes: 4 ([2, 2])
+Total time: 0.022994
+
+dt= 0.012566 
+Iterations: 60
+Dimensions: [10, 10]
+Subdimensions: [5, 5]
+Processes: 4 ([2, 2])
+Total time: 0.001421
+
+dt= 0.001257 
+Iterations: 60
+Dimensions: [100, 100]
+Subdimensions: [50, 50]
+Processes: 4 ([2, 2])
+Total time: 0.005026
+
+dt= 0.000314 
+Iterations: 60
+Dimensions: [400, 400]
+Subdimensions: [200, 200]
+Processes: 4 ([2, 2])
+Total time: 0.062695
+
+dt= 0.012566 
+Iterations: 100
+Dimensions: [10, 10]
+Subdimensions: [5, 5]
+Processes: 4 ([2, 2])
+Total time: 0.001193
+
+dt= 0.001257 
+Iterations: 100
+Dimensions: [100, 100]
+Subdimensions: [50, 50]
+Processes: 4 ([2, 2])
+Total time: 0.007964
+
+dt= 0.000314 
+Iterations: 100
+Dimensions: [400, 400]
+Subdimensions: [200, 200]
+Processes: 4 ([2, 2])
+Total time: 0.107793
+
