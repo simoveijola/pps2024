@@ -1,0 +1,9 @@
+Using domain decomposition 4 x 2
+Local domain size 1000 x 2000
+Generating default data from: rows, columns, nsteps: 4000, 4000, 1000
+Iteration took 10.234 seconds.
+Reference value at 5,5: 52.891015
+
+real	0m12.774s
+user	0m0.012s
+sys	0m0.008s
