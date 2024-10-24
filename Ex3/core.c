@@ -104,6 +104,10 @@ void evolve_interior(field *curr, field *prev, double a, double dt)
                 leftside[row] = prev -> data[idx(i+row, j-1, width)];
                 rightside[row] = prev -> data[idx(i+row, j+3, width)];
             }
+
+            // PREVIOUS AND NEXT ROW ABOVE AND BELOW THESE THREE
+            vec[0] = _mm256_loadu_pd(prev -> data + idx(i-1, j, width));
+            vec[3] = _mm256_loadu_pd(prev -> data + idx(i+2, j, width));
             
             #pragma unroll
             for(int row = 0; row < 2; ++row) {
@@ -137,8 +141,8 @@ void evolve_interior(field *curr, field *prev, double a, double dt)
         }
     }
 
-    for (i; i < nx; i++) {
-        for (j; j < ny; j++) {
+    for (i=i; i < nx; i++) {
+        for (j=j; j < ny; j++) {
             ic = idx(i, j, width);
             iu = idx(i+1, j, width);
             id = idx(i-1, j, width);
