@@ -1,0 +1,13 @@
+arg 0 : 0 arg 1 : 0 arg 2 : 2 arg 3 : 2 arg 4 : 20 arg 5 : 20 arg 6 : 10 
+arguments: 2 2 20 20
+arg 0 : 0 arg 1 : 0 arg 2 : 2 arg 3 : 2 arg 4 : 20 arg 5 : 20 arg 6 : 10 
+arguments: 2 2 20 20
+dt= -0.006283 
+arg 0 : 0 arg 1 : 0 arg 2 : 2 arg 3 : 2 arg 4 : 20 arg 5 : 20 arg 6 : 10 
+arguments: 2 2 20 20
+arg 0 : 0 arg 1 : 0 arg 2 : 2 arg 3 : 2 arg 4 : 20 arg 5 : 20 arg 6 : 10 
+arguments: 2 2 20 20
+
+real	0m35.021s
+user	0m0.014s
+sys	0m0.009s

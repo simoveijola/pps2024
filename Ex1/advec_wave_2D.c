@@ -9,7 +9,7 @@ int rank, nprocs;
 
 const float pi=3.14159;
 const float u_x=0.5 , u_y=0.5 , c_amp=1;  // choose velocity components and amplitude of initial condition
-const float cdt=.3;               // safety factor for timestep (experiment!)
+const float cdt=.01;               // safety factor for timestep (experiment!)
 static float dx, dy;              // grid spacings
 
 float ugrad_upw(int i, int j, int ny, float data[][ny+2*halo_width]){
@@ -98,19 +98,29 @@ int main(int argc, char** argv)
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    // Check compatibility of argv parameters!
+    for(int i = 0; i < argc; ++i) {
+	//printf("arg %d : %d ", i, atoi(argv[i]));
+    }
+    //printf("\n");
 
-    int nprocx = atoi(argv[1]); 
-    int nprocy = atoi(argv[2]);
+    // Check compatibility of argv parameters!
+    int argi = argc-6;
+    int nprocx = atoi(argv[argi + 1]); 
+    int nprocy = atoi(argv[argi + 2]);
+    if(nprocs != nprocx*nprocy) {
+	printf("mismatch between nprocx %d nprocy %d and nprocs %d \n",nprocx,nprocy,nprocs);
+	return 0;
+    }
     
-    int domain_nx = atoi(argv[3]);                 // number of gridpoints in x direction
+    int domain_nx = atoi(argv[argi + 3]);                 // number of gridpoints in x direction
     int subdomain_nx = domain_nx/nprocx;                            // subdomain x-size w/o halos
     int subdomain_mx = subdomain_nx + 2*halo_width;                            //                  with halos
 
-    int domain_ny = atoi(argv[4]);                 // number of gridpoints in y direction
+    int domain_ny = atoi(argv[argi + 4]);                 // number of gridpoints in y direction
     int subdomain_ny = domain_ny/nprocy;                           // subdomain y-size w/o halos
     int subdomain_my = subdomain_ny + 2*halo_width;                        //                  with halos
-    
+ 
+    //printf("arguments: %d %d %d %d\n", nprocx, nprocy, domain_nx, domain_ny);   
     // Find neighboring processes!
     int proc_coords[2];
     MPI_Comm newComm;
@@ -185,7 +195,7 @@ int main(int argc, char** argv)
     float ndata[bsize];
     MPI_Win_create(ndata, bsize*sizeof(float), sizeof(float), MPI_INFO_NULL, newComm, &win);
 
-    unsigned int iterations = atoi(argv[5]);       // number of iterations=timesteps
+    unsigned int iterations = atoi(argv[argi + 5]);       // number of iterations=timesteps
 
     if (u_x==0 && u_y==0) {
       if (rank==0) printf("velocity=0 - no meaningful simulation!");
@@ -195,7 +205,7 @@ int main(int argc, char** argv)
     // CFL condition for timestep:
     float dt = cdt*(u_x==0 ? (u_y==0 ? 0 : dy/u_y) : (u_y==0 ? dx/u_x : fmin(dx/u_x,dy/u_y)));
 
-    if (rank==0) printf("dt= %f \n",dt);
+    // if (rank==0) printf("dt= %f \n",dt);
 
     float t=0.;
 
@@ -209,7 +219,7 @@ int main(int argc, char** argv)
     // Consider proper synchronization measures!
 
     // Initialize timing!
-
+    double start = MPI_Wtime(); 
     // whether we retrieve data from left (true) or right (false), and up or down
     // We use put here, so if left == true, we place data to the right and so on
     int left = u_x > 0 ? 1 : 0;
@@ -239,7 +249,7 @@ int main(int argc, char** argv)
         // Get the data from neighbors!
         // synchronize at first
         MPI_Win_fence(0, win);
-	
+			
         if(left) {
             // starting address to send to the process on the right. 
             // First row of non-halo data and the second last column of that data 
@@ -263,6 +273,7 @@ int main(int argc, char** argv)
             // now offset of the column data being sent from some other process to the target
             MPI_Put(start_addr, 1, row_t, nL_rank, 2*subdomain_nx, 2*subdomain_ny, MPI_FLOAT, win);
         }
+	
         // Compute rhs. Think about concurrency of computation and data fetching by MPI_Get!
         // calculate first the subarray that is not affected by the data from other processes:
 	
@@ -285,16 +296,8 @@ int main(int argc, char** argv)
                 data[halo_width + i][offsety + j] = ndata[i*2 + j];
             }
         }
+	
 	// for debugging just to see that the data is copied correctly (only the case of 1 process)
-	if(iter == 0) {
-	  for(int i = 0; i < subdomain_mx; ++i) {
-	    for(int j = 0; j < subdomain_my; ++j) {
-		printf("%f ", data[i][j]);
-	    }
-	    printf("\n");
-	  }
-	}
-	printf("\n");
 	
 	// 3 subarrays to calculate, the one that depends on data from both sides of the halo
 	// and the ones dependent only on either of the sides
@@ -303,54 +306,58 @@ int main(int argc, char** argv)
 	rhs(xrange_1, yrange_2, subdomain_ny, data, d_data);
 
         // Update field in data using rhs in d_data (Euler's method):
+	
         for (ix = ixstart; ix < ixstop; ++ix) {
             for (iy = iystart; iy < iystop; ++iy)
             {
                 data[ix][iy] += dt*d_data[ix][iy];
-
-                fprintf(fptr_approx,"%f ",data[ix][iy]);
             }
-	    fprintf(fptr_approx,"\n");
         }
+
         t = t+dt;
-        fprintf(fptr_approx,"\n");
         // Output solution for checking/visualisation with choosable cadence!
     }
     fclose(fptr_approx);
 
     // Finalize timing!
-
+    double end = MPI_Wtime();
+    if(rank == 0) printf("%f, ", (double)end-start);
+    //if(rank == 0) printf("Iterations: %d\nDimensions: [%d, %d]\nSubdimensions: [%d, %d]\nProcesses: %d ([%d, %d])\nTotal time: %f\n", iterations, domain_nx, domain_ny, subdomain_nx, subdomain_ny, nprocs, nprocx, nprocy, (double)end-start);
     // analytic solution in array data_an:
     float data_an[iterations][subdomain_mx][subdomain_my], xshift[subdomain_mx], yshift[subdomain_my];
 
     // Construct file name for data chunk of process.
+    // I used this only on the other version that check correctness
+    /*
     FILE* fptr_analytical = get_file_ptr("field_chunk_analytical_",rank);
 
     t=0.;
-    for (int iter=0; iter<iterations; iter++) {
+    for (int iter=0; iter<=iterations; iter++) {
         for (ix=0;ix<subdomain_mx;ix++) xshift[ix] = x[ix] - u_x*t;
         for (iy=0;iy<subdomain_my;iy++) yshift[iy] = y[iy] - u_y*t;
 
         initcond(subdomain_nx, subdomain_ny, xshift, yshift, (float (*)[subdomain_my]) &data_an[iter][0][0]);
 	
-        if (u_y==0.) {
-          for (int ix=ixstart; ix < ixstop; ++ix) fprintf(fptr_analytical,"%f ",data_an[iter][ix][iystart]);
+	if(iter == iterations) {
+          if (u_y==0.) {
+            for (int ix=ixstart; ix < ixstop; ++ix) fprintf(fptr_analytical,"%f ",data_an[iter][ix][iystart]);
+	  }
+          else if(u_x == 0.) {
+            for (int iy=iystart; iy < iystop; ++iy) fprintf(fptr_analytical,"%f ",data_an[iter][ixstart][iy]);
+	  } else {
+              for (int ix=ixstart; ix < ixstop; ++ix)  {
+                for (int iy=iystart; iy < iystop; ++iy) {
+                  fprintf(fptr_analytical,"%f ",data_an[iter][ix][iy]);
+                }
+	        fprintf(fptr_analytical,"\n");
+              }
 	    }
-        else if(u_x == 0.) {
-          for (int iy=iystart; iy < iystop; ++iy) fprintf(fptr_analytical,"%f ",data_an[iter][ixstart][iy]);
-	    } else {
-          for (int ix=ixstart; ix < ixstop; ++ix)  {
-            for (int iy=iystart; iy < iystop; ++iy) {
-                fprintf(fptr_analytical,"%f ",data_an[iter][ix][iy]);
-            }
-	    fprintf(fptr_analytical,"\n");
-          }
-	    }
-      fprintf(fptr_analytical,"\n");
+      	  fprintf(fptr_analytical,"\n");
+	}
       t += dt;
     }
     fclose(fptr_analytical);
-
+    */
     MPI_Win_free(&win);
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Finalize();
