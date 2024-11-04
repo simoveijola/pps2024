@@ -29,8 +29,8 @@ int main(int argc, char **argv)
     double start_clock;        //!< Time stamps
 	
     //int given;
-    MPI_Init(&argc, &argv);
-    //MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &given);
+    //MPI_Init(&argc, &argv);
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &given);
 
     initialize(argc, argv, &current, &previous, &nsteps, 
                &parallelization, &iter0);
@@ -58,10 +58,10 @@ int main(int argc, char **argv)
 	extime += end_ex-start_ex;
         evolve_interior(&current, &previous, a, dt);
 	start_ex = MPI_Wtime();
-        exchange_finalize(&parallelization);
+        // exchange_finalize(&parallelization);
 	end_ex = MPI_Wtime();
         extime2 += end_ex-start_ex;
-        evolve_edges(&current, &previous, a, dt);
+        evolve_edges(&current, &previous, &parallelization, a, dt);
         if (iter % image_interval == 0) {
             write_field(&current, iter, &parallelization);
         }
@@ -71,6 +71,7 @@ int main(int argc, char **argv)
         }
         /* Swap current field so that it will be used
             as previous for next iteration step */
+        exchange_finalize(&parallelization);
         swap_fields(&current, &previous);
     }
 
