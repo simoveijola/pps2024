@@ -144,16 +144,16 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
             MPI_Waitany(4, receives, &req, MPI_STATUSES_IGNORE);
             tasksLeft--;
             // Assing the ready to be handled task to some thread
-            #pragma omp task private(req) 
-            {
-                int i, j;
-                int ic, iu, id, il, ir; // indexes for center, up, down, left, right
+        
+            /* Determine the temperature field at next time step
+            * As we have fixed boundary conditions, the outermost gridpoints
+            * are not updated. */
 
-                /* Determine the temperature field at next time step
-                * As we have fixed boundary conditions, the outermost gridpoints
-                * are not updated. */
-
-                if(req == 1) { // received from up
+            if(req == 1) { // received from up
+                #pragma omp task
+                {
+                    int i, j;
+                    int ic, iu, id, il, ir; // indexes for center, up, down, left, right
                     i = 1;
                     for (j = 2; j < curr->ny; j++) {
                         ic = idx(i, j, width);
@@ -169,7 +169,12 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
                                             2.0 * prev->data[ic] +
                                             prev->data[il]) / dy2);
                     }
-                } else if(req == 0) { // received from down
+                }
+            } else if(req == 0) { // received from down
+                #pragma omp task
+                {
+                    int i, j;
+                    int ic, iu, id, il, ir; // indexes for center, up, down, left, right
                     i = curr -> nx;
                     for (j = 2; j < curr->ny; j++) {
                         ic = idx(i, j, width);
@@ -185,7 +190,12 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
                                             2.0 * prev->data[ic] +
                                             prev->data[il]) / dy2);
                     }
-                } else if(req == 2) { // received from left
+                }
+            } else if(req == 2) { // received from left
+                #pragma omp task
+                {
+                    int i, j;
+                    int ic, iu, id, il, ir; // indexes for center, up, down, left, right
                     j = 1;
                     for (i = 2; i < curr->nx; i++) {
                         ic = idx(i, j, width);
@@ -201,7 +211,12 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
                                             2.0 * prev->data[ic] +
                                             prev->data[il]) / dy2);
                     }
-                } else { // received from right
+                }
+            } else { // received from right
+                #pragma omp task
+                {
+                    int i, j;
+                    int ic, iu, id, il, ir; // indexes for center, up, down, left, right
                     j = curr -> ny;
                     for (i = 2; i < curr->nx; i++) {
                         ic = idx(i, j, width);
@@ -222,6 +237,7 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
         }
         }
     }
+    
     // after all data has been received, and calculated, calculate the last corner values
     for(int i = 1; i < curr->nx+1; i+=curr->nx-1) {
         for(int j = 1; j < curr->ny+1; j+=curr->ny-1) {
