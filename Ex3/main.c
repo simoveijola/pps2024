@@ -27,8 +27,10 @@ int main(int argc, char **argv)
     double dx2, dy2;            //!< delta x and y squared
 
     double start_clock;        //!< Time stamps
-
+	
+    //int given;
     MPI_Init(&argc, &argv);
+    //MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &given);
 
     initialize(argc, argv, &current, &previous, &nsteps, 
                &parallelization, &iter0);
@@ -44,12 +46,21 @@ int main(int argc, char **argv)
 
     /* Get the start time stamp */
     start_clock = MPI_Wtime();
+    double extime = 0;
+    double extime2 = 0;
+    double start_ex, end_ex;
 
     /* Time evolve */
     for (iter = iter0; iter < iter0 + nsteps; iter++) {
+	start_ex = MPI_Wtime();
         exchange_init(&previous, &parallelization);
+	end_ex = MPI_Wtime();
+	extime += end_ex-start_ex;
         evolve_interior(&current, &previous, a, dt);
+	start_ex = MPI_Wtime();
         exchange_finalize(&parallelization);
+	end_ex = MPI_Wtime();
+        extime2 += end_ex-start_ex;
         evolve_edges(&current, &previous, a, dt);
         if (iter % image_interval == 0) {
             write_field(&current, iter, &parallelization);
@@ -65,6 +76,7 @@ int main(int argc, char **argv)
 
     /* Determine the CPU time used for the iteration */
     if (parallelization.rank == 0) {
+	printf("Exhanging data took %.3f + %.3f seconds.\n", extime, extime2);
         printf("Iteration took %.3f seconds.\n", (MPI_Wtime() - start_clock));
         printf("Reference value at 5,5: %f\n", 
                         previous.data[idx(5, 5, current.ny + 2)]);
