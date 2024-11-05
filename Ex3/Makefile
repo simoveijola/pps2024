@@ -1,5 +1,5 @@
 CC=mpicc
-CCFLAGS=-O3 -Wall 
+CCFLAGS=-O3 -Wall -fopenmp 
 LDFLAGS=
 LIBS=-lpng -lm
 
