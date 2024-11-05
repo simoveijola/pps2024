@@ -14,11 +14,14 @@
 #SBATCH --mem-per-cpu=500M
 #### Number of nodes, number of MPI processes is nodes x ntasks
 #SBATCH --nodes=2
-#SBATCH --ntasks-per-node=4
+#SBATCH --ntasks-per-node=1
 ####Specify output file, otherwise slurm-<jobid>.out generated
+#SBATCH --cpus-per-task=4
 #SBATCH --output=DE.out
 ####Special resource allocation, do not use unless instructed
 
+export OMP_PROC_BIND=TRUE
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 module purge   # unload all current modules
 module load gcc
 module load openmpi
