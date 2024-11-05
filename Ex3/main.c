@@ -56,39 +56,36 @@ int main(int argc, char **argv)
     double start_ex, end_ex;
 
     /* Time evolve */
+    int nthreads = omp_get_max_threads();
+    MPI_Request requests[8*nthreads];
     
     for (iter = iter0; iter < iter0 + nsteps; iter++) {
-     	#pragma omp parallel
-	{
-	    #pragma omp single
-	    {
-     	    start_ex = MPI_Wtime();
-          
-            exchange_init(&previous, &parallelization);
-            //#pragma omp taskwait 
-            end_ex = MPI_Wtime();
-            extime += end_ex-start_ex;
-	    }
-
-            evolve_interior(&current, &previous, a, dt);
+     	
+        start_ex = MPI_Wtime();
+        
+        exchange_init(&previous, &parallelization, requests);
+        //#pragma omp taskwait 
+        end_ex = MPI_Wtime();
+        extime += end_ex-start_ex;
 	    
-	    #pragma omp single
-	    {
+
+        evolve_interior(&current, &previous, a, dt);
+	    
 	    start_ex = MPI_Wtime();
         
-            evolve_edges(&current, &previous, &parallelization, a, dt);
-	    //#pragma omp taskwait
+        evolve_edges(&current, &previous, &parallelization, a, dt, requests);
+	
 	    end_ex = MPI_Wtime();
             extime2 += end_ex-start_ex;
-	    }
-	}
-         if (iter % image_interval == 0) {
-             write_field(&current, iter, &parallelization);
-         }
+	    
+	
+        if (iter % image_interval == 0) {
+            write_field(&current, iter, &parallelization);
+        }
          /* write a checkpoint now and then for easy restarting */
-	 if (iter % restart_interval == 0) {
-             write_restart(&current, &parallelization, iter);
-         }
+	    if (iter % restart_interval == 0) {
+            write_restart(&current, &parallelization, iter);
+        }
 	   
          /* Swap current field so that it will be used
          as previous for next iteration step */

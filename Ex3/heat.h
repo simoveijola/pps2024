@@ -24,6 +24,8 @@ typedef struct {
     MPI_Request requests[8];   /* Requests for non-blocking communication */
     MPI_Datatype rowtype;      /* MPI Datatype for communication of rows */
     MPI_Datatype columntype;   /* MPI Datatype for communication of columns */
+    MPI_Datatype rowtype2;      /* Second MPI Datatype for communication of the end of the rows */
+    MPI_Datatype columntype2;   /* Second MPI Datatype for communication of the end of the columns */
     MPI_Datatype subarraytype; /* MPI Datatype for communication in text I/O */
     MPI_Datatype restarttype;  /* MPI Datatype for communication in restart I/O */
     MPI_Datatype filetype;     /* MPI Datatype for file view in restart I/O */
@@ -59,13 +61,13 @@ void initialize(int argc, char *argv[], field *temperature1,
 
 void generate_field(field *temperature, parallel_data *parallel);
 
-void exchange_init(field *temperature, parallel_data *parallel);
+void exchange_init(field *temperature, parallel_data *parallel, MPI_Request *requests);
 
 void exchange_finalize(parallel_data *parallel);
 
 void evolve_interior(field *curr, field *prev, double a, double dt);
 
-void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, double dt);
+void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, double dt, MPI_Request *requests);
 
 void write_field(field *temperature, int iter, parallel_data *parallel);
 

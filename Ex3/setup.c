@@ -6,7 +6,7 @@
 #include <string.h>
 #include <assert.h>
 #include <mpi.h>
-
+#include <omp.h>
 #include "heat.h"
 #include "pngwriter.h"
 
@@ -231,11 +231,25 @@ void parallel_setup(parallel_data *parallel, int nx, int ny)
     }
 
     /* Create datatypes for halo exchange */
-    MPI_Type_vector(nx_local + 2, 1, ny_local + 2, MPI_DOUBLE,
+    int nthreads = omp_get_max_threads();
+
+    int col_per_thread = (nx_local + 2)/nthreads;
+    int col_per_last_thread = nx_local + 2 - col_per_thread*(nthreads-1);
+
+    int row_per_thread = (ny_local + 2)/nthreads;
+    int row_per_last_thread = ny_local + 2 - row_per_thread*(nthreads-1);
+
+    MPI_Type_vector(col_per_thread, 1, ny_local + 2, MPI_DOUBLE,
                     &parallel->columntype);
-    MPI_Type_contiguous(ny_local + 2, MPI_DOUBLE, &parallel->rowtype);
+    MPI_Type_vector(col_per_last_thread, 1, ny_local + 2, MPI_DOUBLE,
+                    &parallel->columntype2);
+    MPI_Type_contiguous(row_per_thread, MPI_DOUBLE, &parallel->rowtype);
+    MPI_Type_contiguous(row_per_last_thread, MPI_DOUBLE, &parallel->rowtype2);
+
     MPI_Type_commit(&parallel->columntype);
     MPI_Type_commit(&parallel->rowtype);
+    MPI_Type_commit(&parallel->columntype2);
+    MPI_Type_commit(&parallel->rowtype2);
 
     /* Create datatype for subblock needed in text I/O
      *   Rank 0 uses datatype for receiving data into full array while
