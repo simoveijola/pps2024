@@ -13,10 +13,10 @@
 #SBATCH --time=00:10:00
 #SBATCH --mem-per-cpu=500M
 #### Number of nodes, number of MPI processes is nodes x ntasks
-#SBATCH --nodes=2
-#SBATCH --ntasks-per-node=1
+#SBATCH --nodes=4
+#SBATCH --ntasks-per-node=4
 ####Specify output file, otherwise slurm-<jobid>.out generated
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=1
 #SBATCH --output=DE.out
 ####Special resource allocation, do not use unless instructed
 
@@ -28,5 +28,5 @@ module load openmpi
 
 rm -f HEAT_RESTART.dat
 
-time srun heat_mpi 4000 4000 1000
+time srun heat_mpi 8000 8000 2000
 
