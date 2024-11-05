@@ -20,41 +20,48 @@ const __m256i shuffle2 = {3,4,5,6};
 void exchange_init(field *temperature, parallel_data *parallel)
 {
     int width;
+    int ind;
     width = temperature->ny + 2;
     // Send to the up, receive from down
-    int ind = idx(1, 0, width);
-    MPI_Isend(&temperature->data[ind], 1, parallel->rowtype,
-              parallel->nup, 11, parallel->comm, &parallel->requests[0]);
-    ind = idx(temperature->nx + 1, 0, width);
-    MPI_Irecv(&temperature->data[ind], 1, parallel->rowtype, 
-              parallel->ndown, 11, parallel->comm, &parallel->requests[1]);
-    
+    #pragma omp task private(ind)
+    {
+        ind = idx(1, 0, width);
+        MPI_Isend(&temperature->data[ind], 1, parallel->rowtype,
+                parallel->nup, 11, parallel->comm, &parallel->requests[0]);
+        ind = idx(temperature->nx + 1, 0, width);
+        MPI_Irecv(&temperature->data[ind], 1, parallel->rowtype, 
+                parallel->ndown, 11, parallel->comm, &parallel->requests[1]);
+    }
     // Send to the down, receive from up
-    
-    ind = idx(temperature->nx, 0, width);
-    MPI_Isend(&temperature->data[ind], 1, parallel->rowtype, 
-              parallel->ndown, 12, parallel->comm, &parallel->requests[2]);
-    ind = idx(0, 0, width);
-    MPI_Irecv(&temperature->data[ind], 1, parallel->rowtype,
-              parallel->nup, 12, parallel->comm, &parallel->requests[3]);
-   
+    #pragma omp task private(ind)
+    {
+        ind = idx(temperature->nx, 0, width);
+        MPI_Isend(&temperature->data[ind], 1, parallel->rowtype, 
+                parallel->ndown, 12, parallel->comm, &parallel->requests[2]);
+        ind = idx(0, 0, width);
+        MPI_Irecv(&temperature->data[ind], 1, parallel->rowtype,
+                parallel->nup, 12, parallel->comm, &parallel->requests[3]);
+    }
     // Send to the left, receive from right
-   
-    ind = idx(0, 1, width);
-    MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
-              parallel->nleft, 13, parallel->comm, &parallel->requests[4]); 
-    ind = idx(0, temperature->ny + 1, width);
-    MPI_Irecv(&temperature->data[ind], 1, parallel->columntype, 
-      		    parallel->nright, 13, parallel->comm, &parallel->requests[5]); 
-     
+    #pragma omp task private(ind)
+    {
+        ind = idx(0, 1, width);
+        MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
+                parallel->nleft, 13, parallel->comm, &parallel->requests[4]); 
+        ind = idx(0, temperature->ny + 1, width);
+        MPI_Irecv(&temperature->data[ind], 1, parallel->columntype, 
+                    parallel->nright, 13, parallel->comm, &parallel->requests[5]); 
+    }
     // Send to the right, receive from left   
-    ind = idx(0, temperature->ny, width);
-    MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
-              parallel->nright, 14, parallel->comm, &parallel->requests[6]);
-    ind = 0;
-    MPI_Irecv(&temperature->data[ind], 1, parallel->columntype,
-              parallel->nleft, 14, parallel->comm, &parallel->requests[7]);
-
+    #pragma omp task private(ind)
+    {
+        ind = idx(0, temperature->ny, width);
+        MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
+                parallel->nright, 14, parallel->comm, &parallel->requests[6]);
+        ind = 0;
+        MPI_Irecv(&temperature->data[ind], 1, parallel->columntype,
+                parallel->nleft, 14, parallel->comm, &parallel->requests[7]);
+    }
 }
 
 /* complete the non-blocking communication */
@@ -101,7 +108,7 @@ void evolve_interior(field *curr, field *prev, double a, double dt)
     double invdy2 = 1. / dy2;
     double adt = a * dt;
     
-    #pragma omp parallel for
+    #pragma omp for nowait
     for (i=2; i < nx; i++) {
         ic = idx(i, 2, width);
         iu = idx(i+1, 2, width);
@@ -129,114 +136,104 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
 {
     // receives we are waiting for in the order of data origin: down, up, right, left
     MPI_Request receives[4] = {parallel->requests[1], parallel->requests[3], parallel->requests[5], parallel->requests[7]};
-    int tasksleft = 4;
     // some common variables
     int width = curr->ny + 2;
     double dx2 = prev->dx * prev->dx, dy2 = prev->dy * prev->dy;
 
-    #pragma omp parallel 
-    {
-        #pragma omp master
-        {
-        while(tasksleft > 0) {
-            // Wait for some receive to be ready 
-            int req;
-            MPI_Waitany(4, receives, &req, MPI_STATUSES_IGNORE);
-            tasksLeft--;
-            // Assing the ready to be handled task to some thread
-        
-            /* Determine the temperature field at next time step
-            * As we have fixed boundary conditions, the outermost gridpoints
-            * are not updated. */
+    /* Determine the temperature field at next time step
+    * As we have fixed boundary conditions, the outermost gridpoints
+    * are not updated. */
 
-            if(req == 1) { // received from up
-                #pragma omp task
-                {
-                    int i, j;
-                    int ic, iu, id, il, ir; // indexes for center, up, down, left, right
-                    i = 1;
-                    for (j = 2; j < curr->ny; j++) {
-                        ic = idx(i, j, width);
-                        iu = idx(i+1, j, width);
-                        id = idx(i-1, j, width);
-                        ir = idx(i, j+1, width);
-                        il = idx(i, j-1, width);
-                        curr->data[ic] = prev->data[ic] + a * dt *
-                                        ((prev->data[iu] -
-                                            2.0 * prev->data[ic] +
-                                            prev->data[id]) / dx2 +
-                                            (prev->data[ir] -
-                                            2.0 * prev->data[ic] +
-                                            prev->data[il]) / dy2);
-                    }
-                }
-            } else if(req == 0) { // received from down
-                #pragma omp task
-                {
-                    int i, j;
-                    int ic, iu, id, il, ir; // indexes for center, up, down, left, right
-                    i = curr -> nx;
-                    for (j = 2; j < curr->ny; j++) {
-                        ic = idx(i, j, width);
-                        iu = idx(i+1, j, width);
-                        id = idx(i-1, j, width);
-                        ir = idx(i, j+1, width);
-                        il = idx(i, j-1, width);
-                        curr->data[ic] = prev->data[ic] + a * dt *
-                                        ((prev->data[iu] -
-                                            2.0 * prev->data[ic] +
-                                            prev->data[id]) / dx2 +
-                                            (prev->data[ir] -
-                                            2.0 * prev->data[ic] +
-                                            prev->data[il]) / dy2);
-                    }
-                }
-            } else if(req == 2) { // received from left
-                #pragma omp task
-                {
-                    int i, j;
-                    int ic, iu, id, il, ir; // indexes for center, up, down, left, right
-                    j = 1;
-                    for (i = 2; i < curr->nx; i++) {
-                        ic = idx(i, j, width);
-                        iu = idx(i+1, j, width);
-                        id = idx(i-1, j, width);
-                        ir = idx(i, j+1, width);
-                        il = idx(i, j-1, width);
-                        curr->data[ic] = prev->data[ic] + a * dt *
-                                        ((prev->data[iu] -
-                                            2.0 * prev->data[ic] +
-                                            prev->data[id]) / dx2 +
-                                            (prev->data[ir] -
-                                            2.0 * prev->data[ic] +
-                                            prev->data[il]) / dy2);
-                    }
-                }
-            } else { // received from right
-                #pragma omp task
-                {
-                    int i, j;
-                    int ic, iu, id, il, ir; // indexes for center, up, down, left, right
-                    j = curr -> ny;
-                    for (i = 2; i < curr->nx; i++) {
-                        ic = idx(i, j, width);
-                        iu = idx(i+1, j, width);
-                        id = idx(i-1, j, width);
-                        ir = idx(i, j+1, width);
-                        il = idx(i, j-1, width);
-                        curr->data[ic] = prev->data[ic] + a * dt *
-                                        ((prev->data[iu] -
-                                            2.0 * prev->data[ic] +
-                                            prev->data[id]) / dx2 +
-                                            (prev->data[ir] -
-                                            2.0 * prev->data[ic] +
-                                            prev->data[il]) / dy2);
-                    }
-                }
-            }
-        }
+    // wait from up
+    #pragma omp task
+    {
+        MPI_Wait(receives[1], MPI_STATUSES_IGNORE);
+        int i, j;
+        int ic, iu, id, il, ir; // indexes for center, up, down, left, right
+        i = 1;
+        for (j = 2; j < curr->ny; j++) {
+            ic = idx(i, j, width);
+            iu = idx(i+1, j, width);
+            id = idx(i-1, j, width);
+            ir = idx(i, j+1, width);
+            il = idx(i, j-1, width);
+            curr->data[ic] = prev->data[ic] + a * dt *
+                            ((prev->data[iu] -
+                                2.0 * prev->data[ic] +
+                                prev->data[id]) / dx2 +
+                                (prev->data[ir] -
+                                2.0 * prev->data[ic] +
+                                prev->data[il]) / dy2);
         }
     }
+    // wait from down
+    #pragma omp task
+    {
+        MPI_Wait(receives[0], MPI_STATUSES_IGNORE);
+        int i, j;
+        int ic, iu, id, il, ir; // indexes for center, up, down, left, right
+        i = curr -> nx;
+        for (j = 2; j < curr->ny; j++) {
+            ic = idx(i, j, width);
+            iu = idx(i+1, j, width);
+            id = idx(i-1, j, width);
+            ir = idx(i, j+1, width);
+            il = idx(i, j-1, width);
+            curr->data[ic] = prev->data[ic] + a * dt *
+                            ((prev->data[iu] -
+                                2.0 * prev->data[ic] +
+                                prev->data[id]) / dx2 +
+                                (prev->data[ir] -
+                                2.0 * prev->data[ic] +
+                                prev->data[il]) / dy2);
+        }
+    }
+    // wait from left
+    #pragma omp task
+    {
+        MPI_Wait(receives[3], MPI_STATUSES_IGNORE);
+        int i, j;
+        int ic, iu, id, il, ir; // indexes for center, up, down, left, right
+        j = 1;
+        for (i = 2; i < curr->nx; i++) {
+            ic = idx(i, j, width);
+            iu = idx(i+1, j, width);
+            id = idx(i-1, j, width);
+            ir = idx(i, j+1, width);
+            il = idx(i, j-1, width);
+            curr->data[ic] = prev->data[ic] + a * dt *
+                            ((prev->data[iu] -
+                                2.0 * prev->data[ic] +
+                                prev->data[id]) / dx2 +
+                                (prev->data[ir] -
+                                2.0 * prev->data[ic] +
+                                prev->data[il]) / dy2);
+        }
+    }
+    // wait from right
+    #pragma omp task
+    {   
+        MPI_Wait(receives[2], MPI_STATUSES_IGNORE);
+        int i, j;
+        int ic, iu, id, il, ir; // indexes for center, up, down, left, right
+        j = curr -> ny;
+        for (i = 2; i < curr->nx; i++) {
+            ic = idx(i, j, width);
+            iu = idx(i+1, j, width);
+            id = idx(i-1, j, width);
+            ir = idx(i, j+1, width);
+            il = idx(i, j-1, width);
+            curr->data[ic] = prev->data[ic] + a * dt *
+                            ((prev->data[iu] -
+                                2.0 * prev->data[ic] +
+                                prev->data[id]) / dx2 +
+                                (prev->data[ir] -
+                                2.0 * prev->data[ic] +
+                                prev->data[il]) / dy2);
+        }
+    }
+}
+
     
     // after all data has been received, and calculated, calculate the last corner values
     for(int i = 1; i < curr->nx+1; i+=curr->nx-1) {
