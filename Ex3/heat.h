@@ -65,7 +65,7 @@ void exchange_finalize(parallel_data *parallel);
 
 void evolve_interior(field *curr, field *prev, double a, double dt);
 
-void evolve_edges(field *curr, field *prev, double a, double dt);
+void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, double dt);
 
 void write_field(field *temperature, int iter, parallel_data *parallel);
 

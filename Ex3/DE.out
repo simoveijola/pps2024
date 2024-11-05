@@ -1,9 +1,10 @@
-Using domain decomposition 4 x 2
-Local domain size 1000 x 2000
-Generating default data from: rows, columns, nsteps: 4000, 4000, 1000
-Iteration took 10.234 seconds.
-Reference value at 5,5: 52.891015
+Using domain decomposition 4 x 4
+Local domain size 2000 x 2000
+Generating default data from: rows, columns, nsteps: 8000, 8000, 2000
+Exhanging data took 0.003 + 0.871 seconds.
+Iteration took 46.343 seconds.
+Reference value at 5,5: 52.697214
 
-real	0m12.774s
-user	0m0.012s
-sys	0m0.008s
+real	0m53.529s
+user	0m0.015s
+sys	0m0.010s

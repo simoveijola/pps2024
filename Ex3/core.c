@@ -19,13 +19,47 @@ const __m256i shuffle2 = {3,4,5,6};
 /* Exchange the boundary values */
 void exchange_init(field *temperature, parallel_data *parallel)
 {
-    int width;
-    int ind;
+/*
+    int ind, width;
     width = temperature->ny + 2;
     // Send to the up, receive from down
-    #pragma omp task private(ind)
+    ind = idx(1, 0, width);
+    MPI_Isend(&temperature->data[ind], 1, parallel->rowtype,
+              parallel->nup, 11, parallel->comm, &parallel->requests[0]);
+    ind = idx(temperature->nx + 1, 0, width);
+    MPI_Irecv(&temperature->data[ind], 1, parallel->rowtype, 
+              parallel->ndown, 11, parallel->comm, &parallel->requests[1]);
+    // Send to the down, receive from up
+    ind = idx(temperature->nx, 0, width);
+    MPI_Isend(&temperature->data[ind], 1, parallel->rowtype, 
+              parallel->ndown, 12, parallel->comm, &parallel->requests[2]);
+    ind = idx(0, 0, width);
+    MPI_Irecv(&temperature->data[ind], 1, parallel->rowtype,
+              parallel->nup, 12, parallel->comm, &parallel->requests[3]);
+    // Send to the left, receive from right
+    ind = idx(0, 1, width);
+    MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
+              parallel->nleft, 13, parallel->comm, &parallel->requests[4]); 
+    ind = idx(0, temperature->ny + 1, width);
+    MPI_Irecv(&temperature->data[ind], 1, parallel->columntype, 
+              parallel->nright, 13, parallel->comm, &parallel->requests[5]); 
+    // Send to the right, receive from left
+    ind = idx(0, temperature->ny, width);
+    MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
+              parallel->nright, 14, parallel->comm, &parallel->requests[7]);
+    ind = 0;
+    MPI_Irecv(&temperature->data[ind], 1, parallel->columntype,
+              parallel->nleft, 14, parallel->comm, &parallel->requests[6]);
+*/
+
+	
+    int width;
+    //int ind;
+    width = temperature->ny + 2;
+    // Send to the up, receive from down
+    #pragma omp task
     {
-        ind = idx(1, 0, width);
+        int ind = idx(1, 0, width);
         MPI_Isend(&temperature->data[ind], 1, parallel->rowtype,
                 parallel->nup, 11, parallel->comm, &parallel->requests[0]);
         ind = idx(temperature->nx + 1, 0, width);
@@ -33,9 +67,9 @@ void exchange_init(field *temperature, parallel_data *parallel)
                 parallel->ndown, 11, parallel->comm, &parallel->requests[1]);
     }
     // Send to the down, receive from up
-    #pragma omp task private(ind)
+    #pragma omp task
     {
-        ind = idx(temperature->nx, 0, width);
+        int ind = idx(temperature->nx, 0, width);
         MPI_Isend(&temperature->data[ind], 1, parallel->rowtype, 
                 parallel->ndown, 12, parallel->comm, &parallel->requests[2]);
         ind = idx(0, 0, width);
@@ -43,9 +77,9 @@ void exchange_init(field *temperature, parallel_data *parallel)
                 parallel->nup, 12, parallel->comm, &parallel->requests[3]);
     }
     // Send to the left, receive from right
-    #pragma omp task private(ind)
+    #pragma omp task
     {
-        ind = idx(0, 1, width);
+        int ind = idx(0, 1, width);
         MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
                 parallel->nleft, 13, parallel->comm, &parallel->requests[4]); 
         ind = idx(0, temperature->ny + 1, width);
@@ -53,15 +87,16 @@ void exchange_init(field *temperature, parallel_data *parallel)
                     parallel->nright, 13, parallel->comm, &parallel->requests[5]); 
     }
     // Send to the right, receive from left   
-    #pragma omp task private(ind)
+    #pragma omp task
     {
-        ind = idx(0, temperature->ny, width);
+        int ind = idx(0, temperature->ny, width);
         MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
                 parallel->nright, 14, parallel->comm, &parallel->requests[6]);
         ind = 0;
         MPI_Irecv(&temperature->data[ind], 1, parallel->columntype,
                 parallel->nleft, 14, parallel->comm, &parallel->requests[7]);
     }
+
 }
 
 /* complete the non-blocking communication */
@@ -134,21 +169,97 @@ void evolve_interior(field *curr, field *prev, double a, double dt)
 /* update only the border-dependent regions of the field */
 void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, double dt)
 {
+    /*
+    int i, j;
+    int ic, iu, id, il, ir; // indexes for center, up, down, left, right
+    int width;
+    width = curr->ny + 2;
+    double dx2, dy2;
+
+    // Determine the temperature field at next time step
+    // As we have fixed boundary conditions, the outermost gridpoints
+    // are not updated.
+    dx2 = prev->dx * prev->dx;
+    dy2 = prev->dy * prev->dy;
+
+    i = 1;
+    for (j = 1; j < curr->ny + 1; j++) {
+        ic = idx(i, j, width);
+        iu = idx(i+1, j, width);
+        id = idx(i-1, j, width);
+        ir = idx(i, j+1, width);
+        il = idx(i, j-1, width);
+        curr->data[ic] = prev->data[ic] + a * dt *
+                           ((prev->data[iu] -
+                             2.0 * prev->data[ic] +
+                             prev->data[id]) / dx2 +
+                            (prev->data[ir] -
+                             2.0 * prev->data[ic] +
+                             prev->data[il]) / dy2);
+    }
+    i = curr -> nx;
+    for (j = 1; j < curr->ny + 1; j++) {
+        ic = idx(i, j, width);
+        iu = idx(i+1, j, width);
+        id = idx(i-1, j, width);
+        ir = idx(i, j+1, width);
+        il = idx(i, j-1, width);
+        curr->data[ic] = prev->data[ic] + a * dt *
+                           ((prev->data[iu] -
+                             2.0 * prev->data[ic] +
+                             prev->data[id]) / dx2 +
+                            (prev->data[ir] -
+                             2.0 * prev->data[ic] +
+                             prev->data[il]) / dy2);
+    }
+    j = 1;
+    for (i = 1; i < curr->nx + 1; i++) {
+        ic = idx(i, j, width);
+        iu = idx(i+1, j, width);
+        id = idx(i-1, j, width);
+        ir = idx(i, j+1, width);
+        il = idx(i, j-1, width);
+        curr->data[ic] = prev->data[ic] + a * dt *
+                           ((prev->data[iu] -
+                             2.0 * prev->data[ic] +
+                             prev->data[id]) / dx2 +
+                            (prev->data[ir] -
+                             2.0 * prev->data[ic] +
+                             prev->data[il]) / dy2);
+    }
+    j = curr -> ny;
+    for (i = 1; i < curr->nx + 1; i++) {
+        ic = idx(i, j, width);
+        iu = idx(i+1, j, width);
+        id = idx(i-1, j, width);
+        ir = idx(i, j+1, width);
+        il = idx(i, j-1, width);
+        curr->data[ic] = prev->data[ic] + a * dt *
+                           ((prev->data[iu] -
+                             2.0 * prev->data[ic] +
+                             prev->data[id]) / dx2 +
+                            (prev->data[ir] -
+                             2.0 * prev->data[ic] +
+                             prev->data[il]) / dy2);
+    }
+    */
+    	
     // receives we are waiting for in the order of data origin: down, up, right, left
     MPI_Request receives[4] = {parallel->requests[1], parallel->requests[3], parallel->requests[5], parallel->requests[7]};
     // some common variables
     int width = curr->ny + 2;
     double dx2 = prev->dx * prev->dx, dy2 = prev->dy * prev->dy;
 
-    /* Determine the temperature field at next time step
-    * As we have fixed boundary conditions, the outermost gridpoints
-    * are not updated. */
+    // Determine the temperature field at next time step
+    // As we have fixed boundary conditions, the outermost gridpoints
+    // are not updated.
 
     // wait from up
     #pragma omp task
     {
-        MPI_Wait(receives[1], MPI_STATUSES_IGNORE);
-        int i, j;
+        //MPI_Wait(&receives[1], MPI_STATUSES_IGNORE);
+        MPI_Waitall(2, &parallel->requests[2], MPI_STATUSES_IGNORE);
+	int i, j;
         int ic, iu, id, il, ir; // indexes for center, up, down, left, right
         i = 1;
         for (j = 2; j < curr->ny; j++) {
@@ -169,8 +280,9 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
     // wait from down
     #pragma omp task
     {
-        MPI_Wait(receives[0], MPI_STATUSES_IGNORE);
-        int i, j;
+        //MPI_Wait(&receives[0], MPI_STATUSES_IGNORE);
+        MPI_Waitall(2, &parallel->requests[0], MPI_STATUSES_IGNORE);
+	int i, j;
         int ic, iu, id, il, ir; // indexes for center, up, down, left, right
         i = curr -> nx;
         for (j = 2; j < curr->ny; j++) {
@@ -191,7 +303,8 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
     // wait from left
     #pragma omp task
     {
-        MPI_Wait(receives[3], MPI_STATUSES_IGNORE);
+        //MPI_Wait(&receives[3], MPI_STATUSES_IGNORE);
+	MPI_Waitall(2, &parallel->requests[6], MPI_STATUSES_IGNORE);
         int i, j;
         int ic, iu, id, il, ir; // indexes for center, up, down, left, right
         j = 1;
@@ -213,7 +326,8 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
     // wait from right
     #pragma omp task
     {   
-        MPI_Wait(receives[2], MPI_STATUSES_IGNORE);
+        //MPI_Wait(&receives[2], MPI_STATUSES_IGNORE);
+	MPI_Waitall(2, &parallel->requests[4], MPI_STATUSES_IGNORE);
         int i, j;
         int ic, iu, id, il, ir; // indexes for center, up, down, left, right
         j = curr -> ny;
@@ -232,8 +346,8 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
                                 prev->data[il]) / dy2);
         }
     }
-}
 
+    #pragma omp taskwait
     
     // after all data has been received, and calculated, calculate the last corner values
     for(int i = 1; i < curr->nx+1; i+=curr->nx-1) {
@@ -252,6 +366,7 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
                                 prev->data[il]) / dy2);
         }
     }
+
 }
 
 /*
