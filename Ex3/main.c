@@ -59,49 +59,38 @@ int main(int argc, char **argv)
     int nthreads = omp_get_max_threads();
     MPI_Request requests[8*nthreads];
     
-    #pragma omp parallel
-    {
-        for (iter = iter0; iter < iter0 + nsteps; iter++) {
-            { // exchnange initialization with all usable threads sending
-                start_ex = MPI_Wtime();
-                
-                exchange_init(&previous, &parallelization, requests);
-                
-                end_ex = MPI_Wtime();
-                extime += end_ex-start_ex;
-            }            
+    for (iter = iter0; iter < iter0 + nsteps; iter++) {
+     	
+        start_ex = MPI_Wtime();
+        
+        exchange_init(&previous, &parallelization, requests);
+        //#pragma omp taskwait 
+        end_ex = MPI_Wtime();
+        extime += end_ex-start_ex;
+	    
 
-            evolve_interior(&current, &previous, a, dt);
-            
-            { // exchnange finalization and calculation using all usable threads
-                start_ex = MPI_Wtime();
-                
-                evolve_edges(&current, &previous, &parallelization, a, dt, requests);
-            
-                end_ex = MPI_Wtime();
-                extime2 += end_ex-start_ex;
-            }
-
-            /*	
-            if (iter % image_interval == 0) {
-                write_field(&current, iter, &parallelization);
-            }
-            // write a checkpoint now and then for easy restarting 
-            if (iter % restart_interval == 0) {
-                write_restart(&current, &parallelization, iter);
-            }
-            */	   
-            /* Swap current field so that it will be used
-            as previous for next iteration step */
-
-            // make sure that everything is done before continuing
-            #pragma omp barrier
-            #pragma omp single
-            {
-                swap_fields(&current, &previous);   
-            } 
-            #pragma omp barrier
+        evolve_interior(&current, &previous, a, dt);
+	    
+        start_ex = MPI_Wtime();
+        
+        evolve_edges(&current, &previous, &parallelization, a, dt, requests);
+	
+	end_ex = MPI_Wtime();
+        extime2 += end_ex-start_ex;
+		    
+/*	
+        if (iter % image_interval == 0) {
+            write_field(&current, iter, &parallelization);
         }
+         // write a checkpoint now and then for easy restarting 
+	    if (iter % restart_interval == 0) {
+            write_restart(&current, &parallelization, iter);
+        }
+*/	   
+         /* Swap current field so that it will be used
+         as previous for next iteration step */
+         //exchange_finalize(&parallelization);
+         swap_fields(&current, &previous);    
     }
 
     /* Determine the CPU time used for the iteration */
