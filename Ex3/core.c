@@ -40,41 +40,41 @@ void exchange_init(field *temperature, parallel_data *parallel, MPI_Request *req
         {
             ind = idx(1, starty, width);
             MPI_Isend(&temperature->data[ind], 1, parallel->rowtype,
-                    parallel->nup, 11, parallel->comm, requests[i*8 + 0]);
+                    parallel->nup, 11, parallel->comm, &requests[i*8 + 0]);
 
             ind = idx(temperature->nx + 1, starty, width);
             MPI_Irecv(&temperature->data[ind], 1, parallel->rowtype, 
-                    parallel->ndown, 11, parallel->comm, requests[i*8 + 1]);
+                    parallel->ndown, 11, parallel->comm, &requests[i*8 + 1]);
         }
         // send down, receive up
         {
             ind = idx(temperature->nx, starty, width);
             MPI_Isend(&temperature->data[ind], 1, parallel->rowtype, 
-                    parallel->ndown, 12, parallel->comm, requests[i*8 + 2]);
+                    parallel->ndown, 12, parallel->comm, &requests[i*8 + 2]);
 
             ind = idx(0, starty, width);
             MPI_Irecv(&temperature->data[ind], 1, parallel->rowtype,
-                    parallel->nup, 12, parallel->comm, requests[i*8 + 3]);
+                    parallel->nup, 12, parallel->comm, &requests[i*8 + 3]);
         }
         // send left, receive right
         {
             ind = idx(startx, 1, width);
             MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
-                    parallel->nleft, 13, parallel->comm, requests[i*8 + 4]); 
+                    parallel->nleft, 13, parallel->comm, &requests[i*8 + 4]); 
 
             ind = idx(startx, temperature->ny + 1, width);
             MPI_Irecv(&temperature->data[ind], 1, parallel->columntype, 
-                        parallel->nright, 13, parallel->comm, requests[i*8 + 5]);
+                        parallel->nright, 13, parallel->comm, &requests[i*8 + 5]);
         }
         // send right, receive left
         {
             ind = idx(startx, temperature->ny, width);
             MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
-                    parallel->nright, 14, parallel->comm, requests[i*8 + 6]);
+                    parallel->nright, 14, parallel->comm, &requests[i*8 + 6]);
 
             ind = startx;
             MPI_Irecv(&temperature->data[ind], 1, parallel->columntype,
-                    parallel->nleft, 14, parallel->comm, requests[i*8 + 7]);
+                    parallel->nleft, 14, parallel->comm, &requests[i*8 + 7]);
         }
     }
 
@@ -154,8 +154,8 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
     double dx2 = prev->dx * prev->dx, dy2 = prev->dy * prev->dy;
     int width, height, stepx, stepy, nthreads;
     //int ind;
-    width = temperature->ny + 2;
-    height = temperature->nx + 2;
+    width = curr->ny + 2;
+    height = curr->nx + 2;
 
     nthreads = omp_get_max_threads();
     stepx = height/nthreads;
@@ -168,13 +168,13 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
     // the work of sending and receiving
     #pragma omp parallel for num_threads(nthreads)
     for(int k = 0; k < nthreads; ++k) {
-        int i, j;
-        MPI_Waitall(8, &parallel->requests[k*8], MPI_STATUSES_IGNORE);
+        int i, j, ic, iu, id, ir, il;
+        MPI_Waitall(8, &requests[k*8], MPI_STATUSES_IGNORE);
 
-        int startx = max(1, stepx*k);
-        int endx = min(stepx*(k+1), curr->nx + 1);
-        int starty = max(1, stepy*k);
-        int endy = min(stepy*(k+1), curr->ny + 1)
+        int startx = k > 0 ? stepx*k : 1;
+        int endx = k < nthreads-1 ? stepx*(k+1) : curr->nx + 1;
+        int starty = k > 0 ? stepy*k : 1;
+        int endy = k < nthreads-1 ? stepy*(k+1) : curr->ny + 1;
         
         i = 1;
         for (j = starty; j < endy; j++) {
