@@ -60,24 +60,29 @@ int main(int argc, char **argv)
     MPI_Request requests[8*nthreads];
     
     for (iter = iter0; iter < iter0 + nsteps; iter++) {
-     	
-        start_ex = MPI_Wtime();
-        
-        exchange_init(&previous, &parallelization, requests);
-        //#pragma omp taskwait 
-        end_ex = MPI_Wtime();
-        extime += end_ex-start_ex;
-	    
+     	#pragma omp parallel
+        {
+            #pragma omp single nowait
+            {
+            start_ex = MPI_Wtime();
+            
+            exchange_init(&previous, &parallelization, requests);
+            //#pragma omp taskwait 
+            end_ex = MPI_Wtime();
+            extime += end_ex-start_ex;
+            }            
 
-        evolve_interior(&current, &previous, a, dt);
-	    
-        start_ex = MPI_Wtime();
+            evolve_interior(&current, &previous, a, dt);
+            
+            #pragma omp single {
+            start_ex = MPI_Wtime();
+            
+            evolve_edges(&current, &previous, &parallelization, a, dt, requests);
         
-        evolve_edges(&current, &previous, &parallelization, a, dt, requests);
-	
-	end_ex = MPI_Wtime();
-        extime2 += end_ex-start_ex;
-		    
+            end_ex = MPI_Wtime();
+            extime2 += end_ex-start_ex;
+            }
+        }
 /*	
         if (iter % image_interval == 0) {
             write_field(&current, iter, &parallelization);
