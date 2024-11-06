@@ -30,7 +30,7 @@ void exchange_init(field *temperature, parallel_data *parallel, MPI_Request *req
 
     // send the data in parallel with maximum number of threads to divide 
     // the work of sending and receiving
-    #pragma omp for nowait num_threads(nthreads)
+    #pragma omp parallel for num_threads(nthreads)
     for(int i = 0; i < nthreads; ++i) {
         // define the offset for the thread
         int startx = stepx*i;
@@ -102,7 +102,7 @@ void evolve_interior(field *curr, field *prev, double a, double dt)
     dx2 = prev->dx * prev->dx;
     dy2 = prev->dy * prev->dy;
     /*
-    #pragma omp for nowait
+    #pragma omp parallel for schedule(static)
     for (i = 2; i < curr->nx; i++) {
         for (j = 2; j < curr->ny; j++) {
             ic = idx(i, j, width);
@@ -124,7 +124,7 @@ void evolve_interior(field *curr, field *prev, double a, double dt)
     double invdy2 = 1. / dy2;
     double adt = a * dt;
     
-    #pragma omp for nowait
+    #pragma omp parallel for schedule(dynamic, 32)
     for (i=2; i < nx; i++) {
         ic = idx(i, 2, width);
         iu = idx(i+1, 2, width);
@@ -166,7 +166,7 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
 
     // send the data in parallel with maximum number of threads to divide 
     // the work of sending and receiving
-    #pragma omp for nowait
+    #pragma omp parallel for num_threads(nthreads)
     for(int k = 0; k < nthreads; ++k) {
         int i, j, ic, iu, id, ir, il;
         MPI_Waitall(8, &requests[k*8], MPI_STATUSES_IGNORE);
@@ -239,25 +239,22 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
 
     }
     
-    #pragma omp single
-    {
-        MPI_Waitall(nthreads*8, &requests[0], MPI_STATUSES_IGNORE);
-        // after all data has been received, and calculated, calculate the last corner values
-        for(int i = 1; i < curr->nx+1; i+=curr->nx-1) {
-            for(int j = 1; j < curr->ny+1; j+=curr->ny-1) {
-                int ic = idx(i, j, width);
-                int iu = idx(i+1, j, width);
-                int id = idx(i-1, j, width);
-                int ir = idx(i, j+1, width);
-                int il = idx(i, j-1, width);
-                curr->data[ic] = prev->data[ic] + a * dt *
-                                ((prev->data[iu] -
-                                    2.0 * prev->data[ic] +
-                                    prev->data[id]) / dx2 +
-                                    (prev->data[ir] -
-                                    2.0 * prev->data[ic] +
-                                    prev->data[il]) / dy2);
-            }
+    // after all data has been received, and calculated, calculate the last corner values
+    for(int i = 1; i < curr->nx+1; i+=curr->nx-1) {
+        for(int j = 1; j < curr->ny+1; j+=curr->ny-1) {
+            int ic = idx(i, j, width);
+            int iu = idx(i+1, j, width);
+            int id = idx(i-1, j, width);
+            int ir = idx(i, j+1, width);
+            int il = idx(i, j-1, width);
+            curr->data[ic] = prev->data[ic] + a * dt *
+                            ((prev->data[iu] -
+                                2.0 * prev->data[ic] +
+                                prev->data[id]) / dx2 +
+                                (prev->data[ir] -
+                                2.0 * prev->data[ic] +
+                                prev->data[il]) / dy2);
         }
     }
+
 }
