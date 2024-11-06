@@ -30,54 +30,51 @@ void exchange_init(field *temperature, parallel_data *parallel, MPI_Request *req
 
     // send the data in parallel with maximum number of threads to divide 
     // the work of sending and receiving
-    // #pragma omp parallel for num_threads(nthreads)
+    #pragma omp for nowait num_threads(nthreads)
     for(int i = 0; i < nthreads; ++i) {
-        #pragma omp task private(i)
+        // define the offset for the thread
+        int startx = stepx*i;
+        int starty = stepy*i;
+        int ind;
+        // send up, receive down
         {
-            // define the offset for the thread
-            int startx = stepx*i;
-            int starty = stepy*i;
-            int ind;
-            // send up, receive down
-            {
-                ind = idx(1, starty, width);
-                MPI_Isend(&temperature->data[ind], 1, parallel->rowtype,
-                        parallel->nup, 11, parallel->comm, &requests[i*8 + 0]);
+            ind = idx(1, starty, width);
+            MPI_Isend(&temperature->data[ind], 1, parallel->rowtype,
+                    parallel->nup, 11, parallel->comm, &requests[i*8 + 0]);
 
-                ind = idx(temperature->nx + 1, starty, width);
-                MPI_Irecv(&temperature->data[ind], 1, parallel->rowtype, 
-                        parallel->ndown, 11, parallel->comm, &requests[i*8 + 1]);
-            }
-            // send down, receive up
-            {
-                ind = idx(temperature->nx, starty, width);
-                MPI_Isend(&temperature->data[ind], 1, parallel->rowtype, 
-                        parallel->ndown, 12, parallel->comm, &requests[i*8 + 2]);
+            ind = idx(temperature->nx + 1, starty, width);
+            MPI_Irecv(&temperature->data[ind], 1, parallel->rowtype, 
+                    parallel->ndown, 11, parallel->comm, &requests[i*8 + 1]);
+        }
+        // send down, receive up
+        {
+            ind = idx(temperature->nx, starty, width);
+            MPI_Isend(&temperature->data[ind], 1, parallel->rowtype, 
+                    parallel->ndown, 12, parallel->comm, &requests[i*8 + 2]);
 
-                ind = idx(0, starty, width);
-                MPI_Irecv(&temperature->data[ind], 1, parallel->rowtype,
-                        parallel->nup, 12, parallel->comm, &requests[i*8 + 3]);
-            }
-            // send left, receive right
-            {
-                ind = idx(startx, 1, width);
-                MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
-                        parallel->nleft, 13, parallel->comm, &requests[i*8 + 4]); 
+            ind = idx(0, starty, width);
+            MPI_Irecv(&temperature->data[ind], 1, parallel->rowtype,
+                    parallel->nup, 12, parallel->comm, &requests[i*8 + 3]);
+        }
+        // send left, receive right
+        {
+            ind = idx(startx, 1, width);
+            MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
+                    parallel->nleft, 13, parallel->comm, &requests[i*8 + 4]); 
 
-                ind = idx(startx, temperature->ny + 1, width);
-                MPI_Irecv(&temperature->data[ind], 1, parallel->columntype, 
-                            parallel->nright, 13, parallel->comm, &requests[i*8 + 5]);
-            }
-            // send right, receive left
-            {
-                ind = idx(startx, temperature->ny, width);
-                MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
-                        parallel->nright, 14, parallel->comm, &requests[i*8 + 6]);
+            ind = idx(startx, temperature->ny + 1, width);
+            MPI_Irecv(&temperature->data[ind], 1, parallel->columntype, 
+                        parallel->nright, 13, parallel->comm, &requests[i*8 + 5]);
+        }
+        // send right, receive left
+        {
+            ind = idx(startx, temperature->ny, width);
+            MPI_Isend(&temperature->data[ind], 1, parallel->columntype,
+                    parallel->nright, 14, parallel->comm, &requests[i*8 + 6]);
 
-                ind = startx;
-                MPI_Irecv(&temperature->data[ind], 1, parallel->columntype,
-                        parallel->nleft, 14, parallel->comm, &requests[i*8 + 7]);
-            }
+            ind = startx;
+            MPI_Irecv(&temperature->data[ind], 1, parallel->columntype,
+                    parallel->nleft, 14, parallel->comm, &requests[i*8 + 7]);
         }
     }
 
@@ -105,7 +102,7 @@ void evolve_interior(field *curr, field *prev, double a, double dt)
     dx2 = prev->dx * prev->dx;
     dy2 = prev->dy * prev->dy;
     /*
-    #pragma omp parallel for schedule(static)
+    #pragma omp for nowait
     for (i = 2; i < curr->nx; i++) {
         for (j = 2; j < curr->ny; j++) {
             ic = idx(i, j, width);
@@ -169,91 +166,23 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
 
     // send the data in parallel with maximum number of threads to divide 
     // the work of sending and receiving
-    // #pragma omp parallel for num_threads(nthreads)
+    #pragma omp for nowait
     for(int k = 0; k < nthreads; ++k) {
-        #pragma omp task private(i)
-        {
-            int i, j, ic, iu, id, ir, il;
-            MPI_Waitall(8, &requests[k*8], MPI_STATUSES_IGNORE);
+        int i, j, ic, iu, id, ir, il;
+        MPI_Waitall(8, &requests[k*8], MPI_STATUSES_IGNORE);
 
-            int startx = k > 0 ? stepx*k : 1;
-            int endx = k < nthreads-1 ? stepx*(k+1) : curr->nx + 1;
-            int starty = k > 0 ? stepy*k : 1;
-            int endy = k < nthreads-1 ? stepy*(k+1) : curr->ny + 1;
-            
-            i = 1;
-            for (j = starty; j < endy; j++) {
-                ic = idx(i, j, width);
-                iu = idx(i+1, j, width);
-                id = idx(i-1, j, width);
-                ir = idx(i, j+1, width);
-                il = idx(i, j-1, width);
-                curr->data[ic] = prev->data[ic] + a * dt *
-                                ((prev->data[iu] -
-                                    2.0 * prev->data[ic] +
-                                    prev->data[id]) / dx2 +
-                                    (prev->data[ir] -
-                                    2.0 * prev->data[ic] +
-                                    prev->data[il]) / dy2);
-            }
-            i = curr -> nx;
-            for (j = starty; j < endy; j++) {
-                ic = idx(i, j, width);
-                iu = idx(i+1, j, width);
-                id = idx(i-1, j, width);
-                ir = idx(i, j+1, width);
-                il = idx(i, j-1, width);
-                curr->data[ic] = prev->data[ic] + a * dt *
-                                ((prev->data[iu] -
-                                    2.0 * prev->data[ic] +
-                                    prev->data[id]) / dx2 +
-                                    (prev->data[ir] -
-                                    2.0 * prev->data[ic] +
-                                    prev->data[il]) / dy2);
-            }
-            j = 1;
-            for (i = startx; i < endx; i++) {
-                ic = idx(i, j, width);
-                iu = idx(i+1, j, width);
-                id = idx(i-1, j, width);
-                ir = idx(i, j+1, width);
-                il = idx(i, j-1, width);
-                curr->data[ic] = prev->data[ic] + a * dt *
-                                ((prev->data[iu] -
-                                    2.0 * prev->data[ic] +
-                                    prev->data[id]) / dx2 +
-                                    (prev->data[ir] -
-                                    2.0 * prev->data[ic] +
-                                    prev->data[il]) / dy2);
-            }
-            j = curr -> ny;
-            for (i = startx; i < endx; i++) {
-                ic = idx(i, j, width);
-                iu = idx(i+1, j, width);
-                id = idx(i-1, j, width);
-                ir = idx(i, j+1, width);
-                il = idx(i, j-1, width);
-                curr->data[ic] = prev->data[ic] + a * dt *
-                                ((prev->data[iu] -
-                                    2.0 * prev->data[ic] +
-                                    prev->data[id]) / dx2 +
-                                    (prev->data[ir] -
-                                    2.0 * prev->data[ic] +
-                                    prev->data[il]) / dy2);
-            }
-        }
-    }
-
-    #pragma omp taskwait
-    
-    // after all data has been received, and calculated, calculate the last corner values
-    for(int i = 1; i < curr->nx+1; i+=curr->nx-1) {
-        for(int j = 1; j < curr->ny+1; j+=curr->ny-1) {
-            int ic = idx(i, j, width);
-            int iu = idx(i+1, j, width);
-            int id = idx(i-1, j, width);
-            int ir = idx(i, j+1, width);
-            int il = idx(i, j-1, width);
+        int startx = k > 0 ? stepx*k : 1;
+        int endx = k < nthreads-1 ? stepx*(k+1) : curr->nx + 1;
+        int starty = k > 0 ? stepy*k : 1;
+        int endy = k < nthreads-1 ? stepy*(k+1) : curr->ny + 1;
+        
+        i = 1;
+        for (j = starty; j < endy; j++) {
+            ic = idx(i, j, width);
+            iu = idx(i+1, j, width);
+            id = idx(i-1, j, width);
+            ir = idx(i, j+1, width);
+            il = idx(i, j-1, width);
             curr->data[ic] = prev->data[ic] + a * dt *
                             ((prev->data[iu] -
                                 2.0 * prev->data[ic] +
@@ -262,6 +191,73 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
                                 2.0 * prev->data[ic] +
                                 prev->data[il]) / dy2);
         }
-    }
+        i = curr -> nx;
+        for (j = starty; j < endy; j++) {
+            ic = idx(i, j, width);
+            iu = idx(i+1, j, width);
+            id = idx(i-1, j, width);
+            ir = idx(i, j+1, width);
+            il = idx(i, j-1, width);
+            curr->data[ic] = prev->data[ic] + a * dt *
+                            ((prev->data[iu] -
+                                2.0 * prev->data[ic] +
+                                prev->data[id]) / dx2 +
+                                (prev->data[ir] -
+                                2.0 * prev->data[ic] +
+                                prev->data[il]) / dy2);
+        }
+        j = 1;
+        for (i = startx; i < endx; i++) {
+            ic = idx(i, j, width);
+            iu = idx(i+1, j, width);
+            id = idx(i-1, j, width);
+            ir = idx(i, j+1, width);
+            il = idx(i, j-1, width);
+            curr->data[ic] = prev->data[ic] + a * dt *
+                            ((prev->data[iu] -
+                                2.0 * prev->data[ic] +
+                                prev->data[id]) / dx2 +
+                                (prev->data[ir] -
+                                2.0 * prev->data[ic] +
+                                prev->data[il]) / dy2);
+        }
+        j = curr -> ny;
+        for (i = startx; i < endx; i++) {
+            ic = idx(i, j, width);
+            iu = idx(i+1, j, width);
+            id = idx(i-1, j, width);
+            ir = idx(i, j+1, width);
+            il = idx(i, j-1, width);
+            curr->data[ic] = prev->data[ic] + a * dt *
+                            ((prev->data[iu] -
+                                2.0 * prev->data[ic] +
+                                prev->data[id]) / dx2 +
+                                (prev->data[ir] -
+                                2.0 * prev->data[ic] +
+                                prev->data[il]) / dy2);
+        }
 
+    }
+    
+    #pragma omp single
+    {
+        MPI_Waitall(nthreads*8, &requests[0], MPI_STATUSES_IGNORE);
+        // after all data has been received, and calculated, calculate the last corner values
+        for(int i = 1; i < curr->nx+1; i+=curr->nx-1) {
+            for(int j = 1; j < curr->ny+1; j+=curr->ny-1) {
+                int ic = idx(i, j, width);
+                int iu = idx(i+1, j, width);
+                int id = idx(i-1, j, width);
+                int ir = idx(i, j+1, width);
+                int il = idx(i, j-1, width);
+                curr->data[ic] = prev->data[ic] + a * dt *
+                                ((prev->data[iu] -
+                                    2.0 * prev->data[ic] +
+                                    prev->data[id]) / dx2 +
+                                    (prev->data[ir] -
+                                    2.0 * prev->data[ic] +
+                                    prev->data[il]) / dy2);
+            }
+        }
+    }
 }
