@@ -104,26 +104,7 @@ void evolve_interior(field *curr, field *prev, double a, double dt)
     // are not updated.
     dx2 = prev->dx * prev->dx;
     dy2 = prev->dy * prev->dy;
-    /*
-    
-    #pragma omp for
-    for (i = 2; i < curr->nx; i++) {
-        for (j = 2; j < curr->ny; j++) {
-            ic = idx(i, j, width);
-            iu = idx(i+1, j, width);
-            id = idx(i-1, j, width);
-            ir = idx(i, j+1, width);
-            il = idx(i, j-1, width);
-            curr->data[ic] = prev->data[ic] + a * dt *
-                               ((prev->data[iu] -
-                                 2.0 * prev->data[ic] +
-                                 prev->data[id]) / dx2 +
-                                (prev->data[ir] -
-                                 2.0 * prev->data[ic] +
-                                 prev->data[il]) / dy2);
-        }
-    }
-    */
+
     double invdx2 = 1. / dx2;
     double invdy2 = 1. / dy2;
     double adt = a * dt;
@@ -168,7 +149,7 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
     // As we have fixed boundary conditions, the outermost gridpoints
     // are not updated.
 
-    // send the data in parallel with maximum number of threads to divide 
+    // send the data in parallel with 4 threads to divide 
     // the work of sending and receiving
     #pragma omp for
     for(int k = 0; k < 4; ++k) {
@@ -179,83 +160,84 @@ void evolve_edges(field *curr, field *prev, parallel_data *parallel, double a, d
         int starty = 2;//k > 0 ? stepy*k : 2;
         int endy = curr->ny;//k < nthreads-1 ? stepy*(k+1) : curr->ny;
         
-	if(k == 0) {
-	MPI_Waitall(2, &requests[2], MPI_STATUSES_IGNORE);
-        i = 1;
-	for (j = starty; j < endy; j++) {
-            ic = idx(i, j, width);
-            iu = idx(i+1, j, width);
-            id = idx(i-1, j, width);
-            ir = idx(i, j+1, width);
-            il = idx(i, j-1, width);
-            curr->data[ic] = prev->data[ic] + a * dt *
-                            ((prev->data[iu] -
-                                2.0 * prev->data[ic] +
-                                prev->data[id]) / dx2 +
-                                (prev->data[ir] -
-                                2.0 * prev->data[ic] +
-                                prev->data[il]) / dy2);
-        }
-	}
-	if(k == 1) {
-	MPI_Waitall(2, &requests[0], MPI_STATUSES_IGNORE);
-        i = curr -> nx;
+        if(k == 0) {
+        MPI_Waitall(2, &requests[2], MPI_STATUSES_IGNORE);
+            i = 1;
         for (j = starty; j < endy; j++) {
-            ic = idx(i, j, width);
-            iu = idx(i+1, j, width);
-            id = idx(i-1, j, width);
-            ir = idx(i, j+1, width);
-            il = idx(i, j-1, width);
-            curr->data[ic] = prev->data[ic] + a * dt *
-                            ((prev->data[iu] -
-                                2.0 * prev->data[ic] +
-                                prev->data[id]) / dx2 +
-                                (prev->data[ir] -
-                                2.0 * prev->data[ic] +
-                                prev->data[il]) / dy2);
+                ic = idx(i, j, width);
+                iu = idx(i+1, j, width);
+                id = idx(i-1, j, width);
+                ir = idx(i, j+1, width);
+                il = idx(i, j-1, width);
+                curr->data[ic] = prev->data[ic] + a * dt *
+                                ((prev->data[iu] -
+                                    2.0 * prev->data[ic] +
+                                    prev->data[id]) / dx2 +
+                                    (prev->data[ir] -
+                                    2.0 * prev->data[ic] +
+                                    prev->data[il]) / dy2);
+            }
         }
-	}
-	if(k == 2) {
-	MPI_Waitall(2, &requests[6], MPI_STATUSES_IGNORE);
-        j = 1;
-        for (i = startx; i < endx; i++) {
-            ic = idx(i, j, width);
-            iu = idx(i+1, j, width);
-            id = idx(i-1, j, width);
-            ir = idx(i, j+1, width);
-            il = idx(i, j-1, width);
-            curr->data[ic] = prev->data[ic] + a * dt *
-                            ((prev->data[iu] -
-                                2.0 * prev->data[ic] +
-                                prev->data[id]) / dx2 +
-                                (prev->data[ir] -
-                                2.0 * prev->data[ic] +
-                                prev->data[il]) / dy2);
+        if(k == 1) {
+        MPI_Waitall(2, &requests[0], MPI_STATUSES_IGNORE);
+            i = curr -> nx;
+            for (j = starty; j < endy; j++) {
+                ic = idx(i, j, width);
+                iu = idx(i+1, j, width);
+                id = idx(i-1, j, width);
+                ir = idx(i, j+1, width);
+                il = idx(i, j-1, width);
+                curr->data[ic] = prev->data[ic] + a * dt *
+                                ((prev->data[iu] -
+                                    2.0 * prev->data[ic] +
+                                    prev->data[id]) / dx2 +
+                                    (prev->data[ir] -
+                                    2.0 * prev->data[ic] +
+                                    prev->data[il]) / dy2);
+            }
         }
-	}
-	if(k == 3) {
-	MPI_Waitall(2, &requests[4], MPI_STATUSES_IGNORE);
-        j = curr -> ny;
-        for (i = startx; i < endx; i++) {
-            ic = idx(i, j, width);
-            iu = idx(i+1, j, width);
-            id = idx(i-1, j, width);
-            ir = idx(i, j+1, width);
-            il = idx(i, j-1, width);
-            curr->data[ic] = prev->data[ic] + a * dt *
-                            ((prev->data[iu] -
-                                2.0 * prev->data[ic] +
-                                prev->data[id]) / dx2 +
-                                (prev->data[ir] -
-                                2.0 * prev->data[ic] +
-                                prev->data[il]) / dy2);
+        if(k == 2) {
+        MPI_Waitall(2, &requests[6], MPI_STATUSES_IGNORE);
+            j = 1;
+            for (i = startx; i < endx; i++) {
+                ic = idx(i, j, width);
+                iu = idx(i+1, j, width);
+                id = idx(i-1, j, width);
+                ir = idx(i, j+1, width);
+                il = idx(i, j-1, width);
+                curr->data[ic] = prev->data[ic] + a * dt *
+                                ((prev->data[iu] -
+                                    2.0 * prev->data[ic] +
+                                    prev->data[id]) / dx2 +
+                                    (prev->data[ir] -
+                                    2.0 * prev->data[ic] +
+                                    prev->data[il]) / dy2);
+            }
         }
-	}
-
+        if(k == 3) {
+        MPI_Waitall(2, &requests[4], MPI_STATUSES_IGNORE);
+            j = curr -> ny;
+            for (i = startx; i < endx; i++) {
+                ic = idx(i, j, width);
+                iu = idx(i+1, j, width);
+                id = idx(i-1, j, width);
+                ir = idx(i, j+1, width);
+                il = idx(i, j-1, width);
+                curr->data[ic] = prev->data[ic] + a * dt *
+                                ((prev->data[iu] -
+                                    2.0 * prev->data[ic] +
+                                    prev->data[id]) / dx2 +
+                                    (prev->data[ir] -
+                                    2.0 * prev->data[ic] +
+                                    prev->data[il]) / dy2);
+            }
+        }
     }
     
 
     // after all data has been received, and calculated, calculate the last corner values
+    // this parallel execution is not 
+    #pragma omp for collapse(2)
     for(int i = 1; i < curr->nx+1; i+=curr->nx-1) {
         for(int j = 1; j < curr->ny+1; j+=curr->ny-1) {
              int ic = idx(i, j, width);

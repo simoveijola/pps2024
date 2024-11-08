@@ -51,62 +51,57 @@ int main(int argc, char **argv)
 
     /* Get the start time stamp */
     start_clock = MPI_Wtime();
-    double extime = 0;
-    double extime2 = 0;
-    double start_ex, end_ex;
+    double interior_time = 0;
+    double exchange_time = 0;
+    double time_steps[3];
 
     /* Time evolve */
     int nthreads = omp_get_max_threads();
-    MPI_Request requests[8*nthreads];
+    MPI_Request requests[8];
 
     for (iter = iter0; iter < iter0 + nsteps; iter++) {
    	#pragma omp parallel num_threads(nthreads)
 	{ 
-            // exchnange initialization with all usable threads sending
-            //start_ex = MPI_Wtime();
-                
+            int tid = omp_get_thread_num();
+
             exchange_init(&previous, &parallelization, requests);
-                
-            //end_ex = MPI_Wtime();
-            //extime += end_ex-start_ex;
                    		
-            evolve_interior(&current, &previous, a, dt);
-       	    //#pragma omp barrier     
-            // exchnange finalization and calculation using all usable threads
-            //start_ex = MPI_Wtime();
+            if(tid == 0) time_steps[0] = MPI_Wtime();
+
+            evolve_interior(&current, &previous, a, dt); 
+
+            if(tid == 0) time_steps[1] = MPI_Wtime(); 
                 
             evolve_edges(&current, &previous, &parallelization, a, dt, requests);
             
-            //end_ex = MPI_Wtime();
-            //extime2 += end_ex-start_ex;
+            if(tid == 0) time_steps[2] = MPI_Wtime();
+
+            if(tid == 0) {
+                interior_time += time_steps[1]-time_steps[0];
+                exchange_time += time_steps[2]-time_steps[1];
+            }
 	}
 
-            /*	
-            if (iter % image_interval == 0) {
-               write_field(&current, iter, &parallelization);
-            }
-            // write a checkpoint now and then for easy restarting 
-            if (iter % restart_interval == 0) {
-                write_restart(&current, &parallelization, iter);
-            }
-            */	   
-            /* Swap current field so that it will be used
-            as previous for next iteration step */
+        /*	
+        if (iter % image_interval == 0) {
+            write_field(&current, iter, &parallelization);
+        }
+        // write a checkpoint now and then for easy restarting 
+        if (iter % restart_interval == 0) {
+            write_restart(&current, &parallelization, iter);
+        }
+        */	   
+        /* Swap current field so that it will be used
+        as previous for next iteration step */
 
-            // make sure that everything is done before continuing
-            // 		#pragma omp barrier
-	    //		#pragma omp single
-	    // 		{
         swap_fields(&current, &previous);   
-	    // 		}
-	    // #pragma omp barrier	
- 
+
     }
 
     /* Determine the CPU time used for the iteration */
     if (parallelization.rank == 0) {
-	printf("Number of threads in a cpu: %i\n", nthreads);
-	printf("Exhanging data took %.3f + %.3f seconds.\n", extime, extime2);
+        printf("Calculating the interior updates at (node 0, thread 0) took %.3f seconds.\n", interior_time);
+	    printf("Waiting for data and updating the edges at (node 0, thread 0) took %.3f seconds.\n", exchange_time);
         printf("Iteration took %.3f seconds.\n", (MPI_Wtime() - start_clock));
         printf("Reference value at 5,5: %f\n", 
                         previous.data[idx(5, 5, current.ny + 2)]);
