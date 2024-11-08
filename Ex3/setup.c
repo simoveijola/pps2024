@@ -239,6 +239,12 @@ void parallel_setup(parallel_data *parallel, int nx, int ny)
     int row_per_thread = (ny_local + 2)/nthreads;
     int row_per_last_thread = ny_local + 2 - row_per_thread*(nthreads-1);
 
+    MPI_Type_vector(nx_local + 2, 1, ny_local + 2, MPI_DOUBLE, &parallel->columntype_full);
+    MPI_Type_contiguous(ny_local + 2, MPI_DOUBLE, &parallel->rowtype_full);
+    MPI_Type_commit(&parallel->columntype_full);
+    MPI_Type_commit(&parallel->rowtype_full);
+
+
     MPI_Type_vector(col_per_thread, 1, ny_local + 2, MPI_DOUBLE,
                     &parallel->columntype);
     MPI_Type_vector(col_per_last_thread, 1, ny_local + 2, MPI_DOUBLE,
