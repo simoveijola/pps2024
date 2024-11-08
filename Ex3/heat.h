@@ -22,7 +22,9 @@ typedef struct {
     int nup, ndown, nleft, nright; /* Ranks of neighbouring MPI tasks */
     MPI_Comm comm;             /* Cartesian communicator */
     MPI_Request requests[8];   /* Requests for non-blocking communication */
+    MPI_Datatype rowtype_full;
     MPI_Datatype rowtype;      /* MPI Datatype for communication of rows */
+    MPI_Datatype columntype_full;
     MPI_Datatype columntype;   /* MPI Datatype for communication of columns */
     MPI_Datatype rowtype2;      /* Second MPI Datatype for communication of the end of the rows */
     MPI_Datatype columntype2;   /* Second MPI Datatype for communication of the end of the columns */
