@@ -9,10 +9,19 @@
 constexpr int countPerBlock = 2048;
 constexpr int blocksPerStream = 28;
 constexpr int threadsPerBlock = 128;
+/*
+__device__ int min(int a, int b) {
+  if(a < b) return a;
+  return b;
+}
 
-Template<int blockSize>
-__device__ void
-warp_reduce(volatile int* data, int i) {
+__device__ int max(int a, int b) {
+  if(a > b) return a;
+  return b;
+}
+*/
+template<unsigned int blockSize>
+__device__ void warp_reduce(volatile int *data, int i) {
   if(blockSize >= 64) data[i] = max(data[i], data[i + 32]);
   if(blockSize >= 32) data[i] = max(data[i], data[i + 16]);
   if(blockSize >= 16) data[i] = max(data[i], data[i + 8]);
@@ -24,9 +33,8 @@ warp_reduce(volatile int* data, int i) {
 // 'count': number of consecutive element to handle in a block
 // 'n': global size of the array
 // 'out': array for result storage
-Template<int blockSize>
-__global__ void
-reduce_kernel(const int* arr, const size_t n, const int streamId, int* out)
+template<unsigned int blockSize>
+__global__ void reduce_kernel(const int* arr, const size_t n, const int streamId, int* out)
 {
   // EXERCISE 4: Your code here
   // local data storage of size blockDim.x
@@ -36,7 +44,7 @@ reduce_kernel(const int* arr, const size_t n, const int streamId, int* out)
   // initialize aux tid
   aux[tid] = 0;
   // last element to handle for this block is 'last-1'
-  int last = min(countPerBlock*(bid+1), n);
+  int last = min(countPerBlock*(bid+1), (int)n);
   while(i < last) {
     aux[tid] = max(aux[tid], arr[i]);
     i+=bdim;
@@ -56,7 +64,7 @@ reduce_kernel(const int* arr, const size_t n, const int streamId, int* out)
   }
 
   // reduce inside the warp
-  if(tid < 32) warp_reduce(aux, tid);
+  if(tid < 32) warp_reduce<threadsPerBlock>(aux, tid);
   // store the maximum of the block to the corresponding place in 'out'
   if(tid == 0) out[bid] = aux[0];
 }
@@ -86,7 +94,7 @@ reduce(const int* arr, const size_t initial_count)
   // efficient division of work for large arrays
 
   // init parallelism variables
-  const int blockSize = min(threadsPerBlock, initial_count);
+  const int blockSize = threadsPerBlock < initial_count ? threadsPerBlock : initial_count;
   const int blockCount = (initial_count+countPerBlock-1)/countPerBlock;
   const int nstream = (blockCount+blocksPerStream-1)/blocksPerStream;
 
@@ -107,7 +115,7 @@ reduce(const int* arr, const size_t initial_count)
   for(int i = 0; i < nstream; ++i) {
     // transfer one stream amount of data
     int offset = i*blocksPerStream*countPerBlock;
-    int count = min((i+1)*blocksPerStream*countPerBlock, initial_count-offset);
+    int count = (i+1)*blocksPerStream*countPerBlock < initial_count-offset ? (i+1)*blocksPerStream*countPerBlock : initial_count-offset;
     int blocks = i != nstream-1 ? blocksPerStream : blockCount-(nstream-1)*blocksPerStream;
     // transfer data to device and add padding when needed
     cudaMemcpyAsync(arr_d+offset, arr+offset, count*sizeof(int), 
@@ -117,7 +125,7 @@ reduce(const int* arr, const size_t initial_count)
                       threadsPerBlock, streams[i]);
     }
     // reduce
-    reduce_kernel< threadsPerBlock ><<<blocks, threadsPerBlock, threadsPerBlock, streams[i]>>>(arr_d, initial_count, i, out_d);
+    reduce_kernel<threadsPerBlock><<<blocks, threadsPerBlock, threadsPerBlock, streams[i]>>>(arr_d, initial_count, i, out_d);
     // transfer data to CPU
     cudaMemcpyAsync(out+i*blocksPerStream, out_d+i*blocksPerStream, blocks*sizeof(int), 
                     cudaMemcpyDeviceToHost, streams[i]);
@@ -128,7 +136,7 @@ reduce(const int* arr, const size_t initial_count)
   // no reason to invoke GPU kernels.
   int maximum = INT_MIN;
   for(int i = 0; i < blockCount; ++i) {
-    maximum = max(maximum, out[i]); 
+    maximum = maximum > out[i] ? maximum : out[i]; 
   }
 
   cudaFree(arr_d);
@@ -139,6 +147,6 @@ reduce(const int* arr, const size_t initial_count)
     cudaStreamDestroy(streams[i]);
   }
 
-  return max;
+  return maximum;
 }
 
