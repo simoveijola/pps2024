@@ -3,16 +3,14 @@
 #include <limits.h>
 #include "errchk.h"
 #include "reduce.cuh"
-
-
-using namespace std;
+#include <cuda_runtime.h>
 
 // some global variables
 constexpr int countPerBlock = 2048;
 constexpr int blocksPerStream = 28;
 constexpr int threadsPerBlock = 128;
 
-Template < int blockSize >
+Template<int blockSize>
 __device__ void
 warp_reduce(volatile int* data, int i) {
   if(blockSize >= 64) data[i] = max(data[i], data[i + 32]);
@@ -26,9 +24,9 @@ warp_reduce(volatile int* data, int i) {
 // 'count': number of consecutive element to handle in a block
 // 'n': global size of the array
 // 'out': array for result storage
-Template < int blockSize >
+Template<int blockSize>
 __global__ void
-reduce_kernel(const int* arr, const int n, const streamId, int* out)
+reduce_kernel(const int* arr, const size_t n, const int streamId, int* out)
 {
   // EXERCISE 4: Your code here
   // local data storage of size blockDim.x
@@ -110,13 +108,13 @@ reduce(const int* arr, const size_t initial_count)
     // transfer one stream amount of data
     int offset = i*blocksPerStream*countPerBlock;
     int count = min((i+1)*blocksPerStream*countPerBlock, initial_count-offset);
-    int blocks = i != nstream-1 ? blocksPerStream : blocks-(nstream-1)*blocksPerStream;
+    int blocks = i != nstream-1 ? blocksPerStream : blockCount-(nstream-1)*blocksPerStream;
     // transfer data to device and add padding when needed
     cudaMemcpyAsync(arr_d+offset, arr+offset, count*sizeof(int), 
                     cudaMemcpyHostToDevice, streams[i]);
     if(i == nstream-1) {/*pad the end*/
       cudaMemsetAsync(arr_d + initial_count, INT_MIN, 
-                      threadsPerBlock, threads[i]);
+                      threadsPerBlock, streams[i]);
     }
     // reduce
     reduce_kernel< threadsPerBlock ><<<blocks, threadsPerBlock, threadsPerBlock, streams[i]>>>(arr_d, initial_count, i, out_d);
@@ -143,3 +141,4 @@ reduce(const int* arr, const size_t initial_count)
 
   return max;
 }
+
