@@ -49,6 +49,7 @@ __global__ void reduce_kernel(const int* arr, const size_t n, const int streamId
     aux[tid] = max(aux[tid], arr[i]);
     i+=bdim;
   }
+  __syncthreads();
 
   if(blockSize >= 512) {
     if(tid < 256) aux[tid] = max(aux[tid], aux[tid + 256]);
@@ -66,7 +67,9 @@ __global__ void reduce_kernel(const int* arr, const size_t n, const int streamId
   // reduce inside the warp
   if(tid < 32) warp_reduce<threadsPerBlock>(aux, tid);
   // store the maximum of the block to the corresponding place in 'out'
-  if(tid == 0) out[bid] = aux[0];
+  if(tid == 0) {
+    out[bid] = aux[0];
+  }
 }
 
 // The host function for calling the reduction kernel
@@ -106,8 +109,8 @@ reduce(const int* arr, const size_t initial_count)
 
   int *arr_d, *out_d;
   // allocate device arrays, pad the end to avoid memory access errors
-  cudaMalloc((void**)arr_d, (initial_count+threadsPerBlock)*sizeof(int)); 
-  cudaMalloc((void**)out_d, blockCount*sizeof(int));
+  cudaMalloc((void**)&arr_d, (initial_count+threadsPerBlock)*sizeof(int)); 
+  cudaMalloc((void**)&out_d, blockCount*sizeof(int));
 
   int *out;
   cudaMallocHost((void**)&out, blockCount*sizeof(int));
@@ -115,7 +118,7 @@ reduce(const int* arr, const size_t initial_count)
   for(int i = 0; i < nstream; ++i) {
     // transfer one stream amount of data
     int offset = i*blocksPerStream*countPerBlock;
-    int count = (i+1)*blocksPerStream*countPerBlock < initial_count-offset ? (i+1)*blocksPerStream*countPerBlock : initial_count-offset;
+    int count = i != nstream-1 ? blocksPerStream*countPerBlock : initial_count-offset;
     int blocks = i != nstream-1 ? blocksPerStream : blockCount-(nstream-1)*blocksPerStream;
     // transfer data to device and add padding when needed
     cudaMemcpyAsync(arr_d+offset, arr+offset, count*sizeof(int), 
