@@ -6,8 +6,8 @@
 
 // some global variables
 constexpr int countPerBlock = 2048;
-constexpr int blocksPerStream = 28;
-constexpr int threadsPerBlock = 128;
+constexpr int blocksPerStream = 56*16; 
+constexpr int threadsPerBlock = 128*2;
 
 template<unsigned int blockSize>
 __device__ void warp_reduce(volatile int *data, int i) {
@@ -110,22 +110,29 @@ reduce(const int* arr, const size_t count)
   // now # streams is multiplied with number of devices, otherwise the same as previously
   const int nstreamPerDev = (blockCount+blocksPerStream-1)/blocksPerStream;
 
-  // init streams
+  // init streams and device/host auxiliary arrays
   cudaStream_t streams[num_devices*nstreamPerDev];
-  for(int i = 0; i < num_devices*nstreamPerDev; ++i) {
-    cudaStreamCreate(&streams[i]);
-  }
-
   int *out_d[num_devices];
   int *out[num_devices];
-  for(int i = 0; i < num_devices; ++i) {
-    // allocate device arrays, pad the end to avoid memory access errors 
-    cudaMalloc((void**)&(out_d+i), blockCount*sizeof(int));
-    cudaMallocHost((void**)&(out+i), blockCount*sizeof(int));
-  }
 
-  for(int i = 0; i < nstreamPerDev; ++i) { // first loop through streams per device
-    for(int j = 0; j < num_devices; ++j) { // then for each iteration start the corresponding stage on each device
+  for(int j = 0; j < num_devices; ++j) {
+    cudaSetDevice(j);
+    cudaMalloc((void**)&out_d[j], blockCount*sizeof(int));
+    cudaMallocHost((void**)&out[j], blockCount*sizeof(int));
+    for(int i = 0; i < nstreamPerDev; ++i) {
+      cudaStreamCreate(&streams[i*num_devices + j]);	
+    }
+  }
+  float kernelTime = 0;
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+	
+  cudaEventRecord(start, 0);
+
+  for(int j = 0; j < num_devices; ++j) { // then for each iteration start the corresponding stage on each device
+    cudaSetDevice(j);
+    for(int i = 0; i < nstreamPerDev; ++i) { // first loop through streams per device
       // transfer one stream amount of data
       int offset = i*blocksPerStream*countPerBlock;
       int count = i != nstreamPerDev-1 ? blocksPerStream*countPerBlock : dcount-offset;
@@ -138,21 +145,35 @@ reduce(const int* arr, const size_t count)
                         threadsPerBlock, streams[i*num_devices + j]);
       }
       // reduce
+      cudaEvent_t startker, stopker;
+      cudaEventCreate(&startker);
+      cudaEventCreate(&stopker);
+      cudaEventRecord(startker, streams[i*num_devices + j]);
       reduce_kernel<threadsPerBlock><<<blocks, threadsPerBlock, threadsPerBlock, streams[i*num_devices + j]>>>(darr[j], dcount, i, out_d[j]);
+      cudaEventRecord(stopker, streams[i*num_devices + j]);
+      cudaEventSynchronize(stopker);
+      float kerTime = 0;
+      cudaEventElapsedTime(&kerTime, startker, stopker);
+      kernelTime += kerTime;
       // transfer data to CPU
       cudaMemcpyAsync(out[j]+i*blocksPerStream, out_d[j]+i*blocksPerStream, blocks*sizeof(int), 
                       cudaMemcpyDeviceToHost, streams[i*num_devices + j]);
+      cudaEventDestroy(startker);
+      cudaEventDestroy(stopker);
     }
   }
 
-  // synchronize all the devices
   for(int j = 0; j < num_devices; ++j) {
-    cudaDeviceSynchronize(j);
+    cudaSetDevice(j);
+    cudaDeviceSynchronize();
   }
+  cudaEventRecord(stop, 0); 
   // reduce the blocks sequentially with CPU as this is only a tiny fraction of calculations
   // no reason to invoke GPU kernels.
   int maximum = INT_MIN;
   for(int j = 0; j < num_devices; ++j) {
+    cudaSetDevice(j);
+    //cudaDeviceSynchronize();
     for(int i = 0; i < blockCount; ++i) {
       maximum = maximum > out[j][i] ? maximum : out[j][i]; 
     }
@@ -164,5 +185,11 @@ reduce(const int* arr, const size_t count)
     }
   }
 
+  float totalTime = 0;
+  cudaEventElapsedTime(&totalTime, start, stop);
+  printf("total time of execution = %f, kernel execution = %f\n", totalTime, kernelTime);
+  
+  cudaEventDestroy(start);
+  cudaEventDestroy(stop);
   return maximum;
 }
