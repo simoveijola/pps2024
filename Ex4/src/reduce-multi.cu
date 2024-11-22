@@ -6,8 +6,8 @@
 
 // some global variables
 constexpr int countPerBlock = 2048;
-constexpr int blocksPerStream = 28*8;
-constexpr int threadsPerBlock = 128;
+constexpr int blocksPerStream = 56*16; 
+constexpr int threadsPerBlock = 128*2;
 
 template<unsigned int blockSize>
 __device__ void warp_reduce(volatile int *data, int i) {
@@ -150,8 +150,8 @@ reduce(const int* arr, const size_t count)
       cudaEventCreate(&stopker);
       cudaEventRecord(startker, streams[i*num_devices + j]);
       reduce_kernel<threadsPerBlock><<<blocks, threadsPerBlock, threadsPerBlock, streams[i*num_devices + j]>>>(darr[j], dcount, i, out_d[j]);
-      //cudaStreamSynchronize(streams[i*num_devices + j]);
       cudaEventRecord(stopker, streams[i*num_devices + j]);
+      cudaEventSynchronize(stopker);
       float kerTime = 0;
       cudaEventElapsedTime(&kerTime, startker, stopker);
       kernelTime += kerTime;
@@ -162,13 +162,18 @@ reduce(const int* arr, const size_t count)
       cudaEventDestroy(stopker);
     }
   }
+
+  for(int j = 0; j < num_devices; ++j) {
+    cudaSetDevice(j);
+    cudaDeviceSynchronize();
+  }
   cudaEventRecord(stop, 0); 
   // reduce the blocks sequentially with CPU as this is only a tiny fraction of calculations
   // no reason to invoke GPU kernels.
   int maximum = INT_MIN;
   for(int j = 0; j < num_devices; ++j) {
     cudaSetDevice(j);
-    cudaDeviceSynchronize();
+    //cudaDeviceSynchronize();
     for(int i = 0; i < blockCount; ++i) {
       maximum = maximum > out[j][i] ? maximum : out[j][i]; 
     }
