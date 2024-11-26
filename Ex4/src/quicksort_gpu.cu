@@ -4,6 +4,7 @@
 #include <thrust/functional.h>
 #include <thrust/execution_policy.h>
 #include <thrust/reduce.h>
+#include <thrust/device_vector.h>
 
 constexpr int elementsPerBlock = 256;
 constexpr int threadsPerBlock = 128;
@@ -34,11 +35,11 @@ __global__ void distribute_kernel(float *data, float *tmp, int *lt, int *eq, int
                 float element = tmp[offset + id];
                 // conviniently zeros the elements left from previous iterations at the same time as sets the new values
                 if(element < pivot){
-                        data[lt[offset + id]] = tmp[offset + id];
+                        data[start + lt[offset + id]] = element;
                 } else if(element == pivot) {
-                        data[countLt + eq[offset + id]] = tmp[offset + id];
+                        data[start + countLt + eq[offset + id]] = element;
                 } else {
-                        data[countLt + countEq + gt[offset + id]] = tmp[offset + id];
+                        data[start + countLt + countEq + gt[offset + id]] = element;
                 }
                 id += threadsPerBlock;
         }
@@ -54,7 +55,7 @@ std::pair<int, int> partition(float *data, float *tmp, int *lt, int *eq, int *gt
         //copy_kernel<<<256, 256>>>(data, tmp, start, end);
         cudaMemcpy(tmp+start, data+start, n*sizeof(float), cudaMemcpyDeviceToDevice);
         // need the thrust wrappers to run thrust exclusive scan
-        thrust::device_ptr<int> tlt(lt);
+	thrust::device_ptr<int> tlt(lt);
         thrust::device_ptr<int> teq(eq);
         thrust::device_ptr<int> tgt(gt);
 
@@ -69,8 +70,8 @@ std::pair<int, int> partition(float *data, float *tmp, int *lt, int *eq, int *gt
         thrust::exclusive_scan(tlt+start, tlt+end, tlt+start);
         thrust::exclusive_scan(teq+start, teq+end, teq+start);
         thrust::exclusive_scan(tgt+start, tgt+end, tgt+start);
-        // update total counts
-        int exSumLess, exSumLessEqual, exSumLessGreater; 
+	// update total counts
+        int exSumLess, exSumEqual, exSumGreater; 
         cudaMemcpy(&exSumLess, lt+end-1, sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(&exSumEqual, eq+end-1, sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(&exSumGreater, gt+end-1, sizeof(int), cudaMemcpyDeviceToHost);
@@ -86,8 +87,12 @@ std::pair<int, int> partition(float *data, float *tmp, int *lt, int *eq, int *gt
 
 // here we asume that every array is on device
 void quicksort_device(float pivot, int start, int end, float *data, float *tmp, int *lt, int *eq, int *gt) {
-        std::pair<int,int> edges = partition(data, tmp, lt, eq, gt, pivot, start, end);
-        int end1 = edges.first, start2 = edges.second;
+        int n = end-start;
+	if(n <= 1) {
+		return;
+	}
+	std::pair<int,int> edges = partition(data, tmp, lt, eq, gt, pivot, start, end);
+        int end1 = start + edges.first, start2 = start + edges.second;
         float piv1 = 0., piv2 = 0.;
         // choose the pivots from the middle of the data and transfer to host
         cudaMemcpy(&piv1, data+(start+end1)/2, sizeof(float), cudaMemcpyDeviceToHost);
@@ -124,20 +129,24 @@ void quicksort(float pivot, int start, int end, float* &data)
         // idea here is to allocate the GPU memory only once to reduce overhead.
         // different partitioned sides operate on different indices of these arrays, avoiding
         // race conditions
-        float *dataGPU = NULL, *tmpGPU = NULL, *ltGPU = NULL, *eqGPU = NULL, *gtGPU = NULL;
-        cudaMalloc((void**)&dataGPU, n*sizeof(float));
+        float *dataGPU = NULL, *tmpGPU = NULL;
+       	int *ltGPU = NULL, *eqGPU = NULL, *gtGPU = NULL;
+        //cudaMalloc((void**)&dataGPU, n*sizeof(float));
         cudaMalloc((void**)&tmpGPU, n*sizeof(float));
-        cudaMalloc((void**)&ltGPU, n*sizeof(float));
-        cudaMalloc((void**)&eqGPU, n*sizeof(float));
-        cudaMalloc((void**)&gtGPU, n*sizeof(float));
+        cudaMalloc((void**)&ltGPU, n*sizeof(int));
+        cudaMalloc((void**)&eqGPU, n*sizeof(int));
+        cudaMalloc((void**)&gtGPU, n*sizeof(int));
         // move data to GPU
-        cudaMemcpy(dataGPU, data+start, n*sizeof(float), cudaMemcpyHostToDevice);
+        //cudaMemcpy(dataGPU, data+start, n*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemset(ltGPU, 0, n*sizeof(int));
+	cudaMemset(eqGPU, 0, n*sizeof(int));
+	cudaMemset(gtGPU, 0, n*sizeof(int));
         // use device quicksort
-        quicksort_device(pivot, start, end, dataGPU, tmpGPU, ltGPU, eqGPU, gtGPU);
+        quicksort_device(pivot, start, end, data, tmpGPU, ltGPU, eqGPU, gtGPU);
         // move data back to host from device
-        cudaMemcpy(data+start, dataGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
+        //cudaMemcpy(data+start, dataGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
         // free the device arrays
-        cudaFree(dataGPU);
+        //cudaFree(dataGPU);
         cudaFree(tmpGPU);
         cudaFree(ltGPU);
         cudaFree(eqGPU);
@@ -146,14 +155,3 @@ void quicksort(float pivot, int start, int end, float* &data)
 
 
 
-// copies float data from a to b
-__global__ void copy_kernel(float *a, float *b, int start, int end) {
-        int ia = threadIdx.x, ib = blockIdx.x, nb = gridDim.x;
-        int n = end-start;
-        int elementsToCopy = (n+nb-1)/nb;
-        int offset = start + ib*elementsToCopy;
-        while(ia < elementsToCopy && offset + ia < end) {
-                b[offset + ia] = a[offset + ia];
-                ia += threadsPerBlock;
-        }
-}
