@@ -107,7 +107,7 @@ void quicksort_device(float pivot, int start, int end, float *data, float *tmp, 
         quicksort_device(piv2, start2, end, data, tmp, lt, eq, gt);
 }
 
-void quicksort(float pivot, int start, int end, float* data, MPI_Comm comm, float *tmp, int* lt, int* eq, int *gt)
+void quicksort(float pivot, int start, int end, float* data, MPI_Comm comm, float *tmp, int* lt, int* eq, int *gt, int mpiend)
 {
 
         int n = end-start;
@@ -131,7 +131,7 @@ void quicksort(float pivot, int start, int end, float* data, MPI_Comm comm, floa
                 MPI_Comm_rank(MPI_COMM_WORLD, &rankg);
                 int proclengths[nproc_global], displs[nproc_global];
                 displs[0] = 0;
-                len = end-start;
+                len = mpiend-start;
                 // debugging prints
                 //printf("rank %i sorted elements between [%i, %i]\n", rankg, start, end);
                 MPI_Allgather(&len, 1, MPI_FLOAT, proclengths,
@@ -151,17 +151,20 @@ void quicksort(float pivot, int start, int end, float* data, MPI_Comm comm, floa
                 if(color == 0) {
                         std::pair<int,int> edges = partition(data, tmp, lt, eq, gt, pivot, start, end);
                         int newend = start + edges.first;
+                        int mpiend = start + edges.second;
                         float piv = 0.;
                         // choose the pivots from the middle of the data and transfer to host
                         cudaMemcpy(&piv, data+(start+newend)/2, sizeof(float), cudaMemcpyDeviceToHost);
-                        quicksort(piv, start, newend, data, newcomm, tmp, lt, eq, gt);
+                        // pass also the value of next start so that we can gather the equal elements later with mpi
+                        // color 0 nodes take care of this
+                        quicksort(piv, start, newend, data, newcomm, tmp, lt, eq, gt, mpiend);
                 } else {
                         std::pair<int,int> edges = partition(data, tmp, lt, eq, gt, pivot, start, end);
                         int newstart = start + edges.second;
                         float piv = 0.;
                         // choose the pivots from the middle of the data and transfer to host
                         cudaMemcpy(&piv, data+(newstart+end)/2, sizeof(float), cudaMemcpyDeviceToHost);
-                        quicksort(piv, newstart, end, data, newcomm, tmp, lt, eq, gt);
+                        quicksort(piv, newstart, end, data, newcomm, tmp, lt, eq, gt, end);
                 }
         }	
         
