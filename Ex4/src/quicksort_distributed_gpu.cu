@@ -107,88 +107,64 @@ void quicksort_device(float pivot, int start, int end, float *data, float *tmp, 
         quicksort_device(piv2, start2, end, data, tmp, lt, eq, gt);
 }
 
-void quicksort(float pivot, int start, int end, float* &data)
+void quicksort(float pivot, int start, int end, float* data, MPI_Comm comm, float *tmp, int* lt, int* eq, int *gt)
 {
-/**
-        Exercise 4: Your code here
-        Input:
-                pivot: a pivot value based on which to split the array in to less and greater elems
-                start: starting index of the range to be sorted
-                end: exclusive ending index of the range to be sorted
-                data: array of floats allocated on the GPU to sort in range start till end
-        Return:
-                upon return the array range should be sorted
-        Task:
-                to sort the array using the idea of quicksort in a stable manner
-                a sort is stable if it maintains the relative order of elements with equal values
-		during the sorting try to keep the data movement of the CPU and GPU as small as possible
-		and ideally only move scalars between them
-	Hint:
-		prefix sum is a beneficial primitive in this case that you are recommended to use:
-		https://developer.nvidia.com/gpugems/gpugems3/part-vi-gpu-computing/chapter-39-parallel-prefix-sum-scan-cuda
-**/
+
         int n = end-start;
         if(n <= 1) {
                 return;
         }
-        // idea here is to allocate the GPU memory only once to reduce overhead.
-        // different partitioned sides operate on different indices of these arrays, avoiding
-        // race conditions
-        float *dataGPU = NULL, *tmpGPU = NULL;
-       	int *ltGPU = NULL, *eqGPU = NULL, *gtGPU = NULL;
-        //cudaMalloc((void**)&dataGPU, n*sizeof(float));
-        cudaMalloc((void**)&tmpGPU, n*sizeof(float));
-        cudaMalloc((void**)&ltGPU, n*sizeof(int));
-        cudaMalloc((void**)&eqGPU, n*sizeof(int));
-        cudaMalloc((void**)&gtGPU, n*sizeof(int));
-        // move data to GPU
-        //cudaMemcpy(dataGPU, data+start, n*sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemset(ltGPU, 0, n*sizeof(int));
-	cudaMemset(eqGPU, 0, n*sizeof(int));
-	cudaMemset(gtGPU, 0, n*sizeof(int));
-        // use device quicksort
-        quicksort_device(pivot, start, end, data, tmpGPU, ltGPU, eqGPU, gtGPU);
-        // move data back to host from device
-        //cudaMemcpy(data+start, dataGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
-        // free the device arrays
-        //cudaFree(dataGPU);
-        cudaFree(tmpGPU);
-        cudaFree(ltGPU);
-        cudaFree(eqGPU);
-        cudaFree(gtGPU);
-}
+        
+        int nprocs, rank;
+        MPI_Comm newcomm;
+        MPI_Comm_size(comm, &nprocs);
+        MPI_Comm_rank(comm, &rank);
 
-int partition_cpu(float *data, float pivot, int start, int end, bool lte) {
-        std::vector<float> partitioned;
-        for(int i = start; i < end; ++i) {
-                if(lte && data[i] <= pivot) {
-                        partitioned.push_back(data[i]);
-                } else if(!lte && data[i] > pivot) {
-                        partitioned.push_back(data[i]);
-                }
-        }
-        int len = partitioned.size();
-        if(lte) {
-                for(int i = 0; i < len; ++i) {
-                        data[start + i] = partitioned[i];
-                }
+        if(nprocs == 1) {
+                // sort this processes subarray using the sequential sorting
+                quicksort_device(pivot, start, end, data);
+                // this is the last recursive operation after which we have sorted our block
+                // we may just as well wait for all the processes to finnish i.e. no reason to use non-blocking methods
+                // Firts we query for the size of each part of the data
+                int nproc_global, len, rankg;
+                MPI_Comm_size(MPI_COMM_WORLD, &nproc_global);
+                MPI_Comm_rank(MPI_COMM_WORLD, &rankg);
+                int proclengths[nproc_global], displs[nproc_global];
+                displs[0] = 0;
+                len = end-start;
+                // debugging prints
+                //printf("rank %i sorted elements between [%i, %i]\n", rankg, start, end);
+                MPI_Allgather(&len, 1, MPI_FLOAT, proclengths,
+                        1, MPI_FLOAT, MPI_COMM_WORLD);
+                // calculate the offsets for data placements
+                for(int i = 1; i < nproc_global; ++i) { displs[i] = displs[i-1] + proclengths[i-1]; }
+                // gather sorted data to all processes
+                MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL,
+                        data, proclengths, displs, MPI_FLOAT, MPI_COMM_WORLD);
+                return;
         } else {
-                int s = end-len;
-                for(int i = 0; i < len; ++i) {
-                        data[s + i] = partitioned[i];
+                // always devide the processes in two, the left and the right side.
+                int color = rank < nprocs/2 ? 0 : 1;
+                MPI_Comm_split(comm, color, 0, &newcomm);
+                // then partition the required part of the data in the correct way and continue
+                // recursively, until no more processes to split the data with
+                if(color == 0) {
+                        std::pair<int,int> edges = partition(data, tmp, lt, eq, gt, pivot, start, end);
+                        int newend = start + edges.first;
+                        float piv = 0.;
+                        // choose the pivots from the middle of the data and transfer to host
+                        cudaMemcpy(&piv, data+(start+end1)/2, sizeof(float), cudaMemcpyDeviceToHost);
+                        quicksort(piv, start, newend, data, newcomm, tmp, lt, eq, gt);
+                } else {
+                        std::pair<int,int> edges = partition(data, tmp, lt, eq, gt, pivot, start, end);
+                        int newstart = start + edges.second;
+                        float piv = 0.;
+                        // choose the pivots from the middle of the data and transfer to host
+                        cudaMemcpy(&piv, data+(start+end1)/2, sizeof(float), cudaMemcpyDeviceToHost);
+                        quicksort(piv, newstart, end, data, newcomm, tmp, lt, eq, gt);
                 }
-        }
-        return len;
-}
-
-float pivot_selection(int n, std::vector<float> candidates, float *data) {
-	if(n < 5) return data[0];
-	for(int k = 0; k < 5; k++) {
-		int ind = (k+1)*n/5;
-		candidates[k] = data[ind];
-	}
-	std::nth_element(candidates.begin(), candidates.begin() + 2, candidates.end());
-	return candidates[2];
+        }	
+        
 }
 
 void quicksort_distributed(float pivot, int start, int end, float* &data, MPI_Comm comm)
@@ -219,55 +195,29 @@ void quicksort_distributed(float pivot, int start, int end, float* &data, MPI_Co
 
         Hint:
 		!!You should be able to combine and copy your solutions in quicksort_gpu.cu and quicksort_distributed.cu!!
-**/
-int nprocs, rank;
-MPI_Comm newcomm;
-MPI_Comm_size(comm, &nprocs);
-MPI_Comm_rank(comm, &rank);
-//printf("rank %i, nprocs = %i, start = %i, end= %i\n", rank, nprocs, start, end);
+        **/
+        //printf("rank %i, nprocs = %i, start = %i, end= %i\n", rank, nprocs, start, end);
 
-if(nprocs == 1) {
-        // sort this processes subarray using the sequential sorting
-        quicksort(pivot, start, end, data);
-        // this is the last recursive operation after which we have sorted our block
-        // we may just as well wait for all the processes to finnish i.e. no reason to use non-blocking methods
-        // Firts we query for the size of each part of the data
-        int nproc_global, len, rankg;
-        MPI_Comm_size(MPI_COMM_WORLD, &nproc_global);
-        MPI_Comm_rank(MPI_COMM_WORLD, &rankg);
-        int proclengths[nproc_global], displs[nproc_global];
-        displs[0] = 0;
-        len = end-start;
-        // debugging prints
-        //printf("rank %i sorted elements between [%i, %i]\n", rankg, start, end);
-        MPI_Allgather(&len, 1, MPI_FLOAT, proclengths,
-                      1, MPI_FLOAT, MPI_COMM_WORLD);
-        // calculate the offsets for data placements
-        for(int i = 1; i < nproc_global; ++i) { displs[i] = displs[i-1] + proclengths[i-1]; }
-        // gather sorted data to all processes
-        MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL,
-                       data, proclengths, displs, MPI_FLOAT, MPI_COMM_WORLD);
-} else {
-        // for pivot selection
-        float piv;
-        std::vector<float> candidates(5);
-        // always devide the processes in two, the left and the right side.
-        int color = rank < nprocs/2 ? 0 : 1;
-        MPI_Comm_split(comm, color, 0, &newcomm);
-        // then partition the required part of the data in the correct way and continue
-        // recursively, until no more processes to split the data with
-        if(color == 0) {
-                int newend = start + partition_cpu(data, pivot, start, end, true);
-                // select the new pivot
-                piv = newend-start > 0 ? pivot_selection(newend-start, candidates, data + start) : 0.;
-                //recursive step
-                quicksort_distributed(piv, start, newend, data, newcomm);
-        } else {
-                int newstart = end - partition_cpu(data, pivot, start, end, false);
-                // select the pivot
-                piv = end-newstart > 0 ? pivot_selection(end-newstart, candidates, data + newstart) : 0.;
-                // recursive step
-                quicksort_distributed(piv, newstart, end, data, newcomm);
-        }
-}	
+        // cuda allocations: do only once
+        float *dataGPU = NULL, *tmpGPU = NULL;
+        int *ltGPU = NULL, *eqGPU = NULL, *gtGPU = NULL;
+        //cudaMalloc((void**)&dataGPU, n*sizeof(float));
+        cudaMalloc((void**)&tmpGPU, n*sizeof(float));
+        cudaMalloc((void**)&ltGPU, n*sizeof(int));
+        cudaMalloc((void**)&eqGPU, n*sizeof(int));
+        cudaMalloc((void**)&gtGPU, n*sizeof(int));
+
+        cudaMemset(ltGPU, 0, n*sizeof(int));
+        cudaMemset(eqGPU, 0, n*sizeof(int));
+        cudaMemset(gtGPU, 0, n*sizeof(int));
+
+        // then call quicksort function, which first partitions the data for each node recursively, and then calls the previous gpu
+        // of quicksort
+        quicksort(pivot, start, end, data, comm, tmpGPU, ltGPU, eqGPU, gtGPU);
+
+        // free temporary cuda arrays
+        cudaFree(tmpGPU);
+        cudaFree(ltGPU);
+        cudaFree(eqGPU);
+        cudaFree(gtGPU);
 }
