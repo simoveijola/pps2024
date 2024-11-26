@@ -220,7 +220,7 @@ void quicksort_distributed(float pivot, int start, int end, float* &data, MPI_Co
 
         // then call quicksort function, which first partitions the data for each node recursively, and then calls the previous gpu
         // of quicksort
-        quicksort(pivot, start, end, data, comm, tmpGPU, ltGPU, eqGPU, gtGPU);
+        quicksort(pivot, start, end, data, comm, tmpGPU, ltGPU, eqGPU, gtGPU, end);
 
         // free temporary cuda arrays
         cudaFree(tmpGPU);
