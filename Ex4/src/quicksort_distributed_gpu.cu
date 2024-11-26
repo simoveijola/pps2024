@@ -122,7 +122,7 @@ void quicksort(float pivot, int start, int end, float* data, MPI_Comm comm, floa
 
         if(nprocs == 1) {
                 // sort this processes subarray using the sequential sorting
-                quicksort_device(pivot, start, end, data);
+                quicksort_device(pivot, start, end, data, tmp, lt, eq, gt);
                 // this is the last recursive operation after which we have sorted our block
                 // we may just as well wait for all the processes to finnish i.e. no reason to use non-blocking methods
                 // Firts we query for the size of each part of the data
@@ -153,14 +153,14 @@ void quicksort(float pivot, int start, int end, float* data, MPI_Comm comm, floa
                         int newend = start + edges.first;
                         float piv = 0.;
                         // choose the pivots from the middle of the data and transfer to host
-                        cudaMemcpy(&piv, data+(start+end1)/2, sizeof(float), cudaMemcpyDeviceToHost);
+                        cudaMemcpy(&piv, data+(start+newend)/2, sizeof(float), cudaMemcpyDeviceToHost);
                         quicksort(piv, start, newend, data, newcomm, tmp, lt, eq, gt);
                 } else {
                         std::pair<int,int> edges = partition(data, tmp, lt, eq, gt, pivot, start, end);
                         int newstart = start + edges.second;
                         float piv = 0.;
                         // choose the pivots from the middle of the data and transfer to host
-                        cudaMemcpy(&piv, data+(start+end1)/2, sizeof(float), cudaMemcpyDeviceToHost);
+                        cudaMemcpy(&piv, data+(newstart+end)/2, sizeof(float), cudaMemcpyDeviceToHost);
                         quicksort(piv, newstart, end, data, newcomm, tmp, lt, eq, gt);
                 }
         }	
@@ -198,6 +198,10 @@ void quicksort_distributed(float pivot, int start, int end, float* &data, MPI_Co
         **/
         //printf("rank %i, nprocs = %i, start = %i, end= %i\n", rank, nprocs, start, end);
 
+        int n = end-start;
+        if(n <= 1) {
+                return;
+        }
         // cuda allocations: do only once
         float *dataGPU = NULL, *tmpGPU = NULL;
         int *ltGPU = NULL, *eqGPU = NULL, *gtGPU = NULL;
